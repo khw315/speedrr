@@ -28,7 +28,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: itschasa/speedrr
+          images: hann315/speedrr
 
       - name: Build and push Docker image (multi-arch)
         uses: docker/build-push-action@v5

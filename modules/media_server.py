@@ -14,6 +14,7 @@ from helpers.bit_convert import bit_conv
 class MediaServerModule:
     def __init__(self, config: SpeedrrConfig, module_config: List[MediaServerConfig], update_event: threading.Event) -> None:
         self.reduction_value_dict: dict[MediaServerConfig, float] = {}
+        self.stream_count_dict: dict[MediaServerConfig, int] = {}
 
         self._config = config
         self._module_config = module_config
@@ -44,8 +45,57 @@ class MediaServerModule:
     def get_reduction_value(self) -> tuple[float, float]:
         "How much to reduce the speed by, in the config's units. Returns a tuple of `(upload, download)`."
 
+        # Check if any server uses stream-based speeds
+        stream_based_servers = [
+            server for server in self._module_config 
+            if server.stream_based_speeds and server.stream_based_speeds.enabled
+        ]
+        
+        if stream_based_servers:
+            # Use stream-based speed calculation
+            total_streams = sum(self.stream_count_dict.values())
+            logger.info(f"<media_servers> Total active streams: {total_streams}")
+            logger.info(f"<media_servers> Stream counts per server = {'; '.join(f'{server.url}: {count}' for server, count in self.stream_count_dict.items())}")
+            
+            # For now, return 0 reduction - the main loop will handle stream-based speed setting
+            # We use a special marker (negative infinity) to signal stream-based mode
+            return float('-inf'), 0
+        
+        # Use bandwidth-based calculation (original behavior)
         logger.info(f"<media_servers> Upload reduction values = {'; '.join(f'{server.url}: {reduction}' for server, reduction in self.reduction_value_dict.items())}")
         return sum(self.reduction_value_dict.values()), 0
+    
+    def get_stream_count(self) -> int:
+        """Get the total number of active streams across all servers."""
+        return sum(self.stream_count_dict.values())
+    
+    def get_target_upload_speed(self) -> Union[int, float, str]:
+        """Get the target upload speed based on stream count for stream-based mode."""
+        total_streams = self.get_stream_count()
+        
+        # Find the first server with stream-based speeds enabled (they should all use the same config in practice)
+        for server_config in self._module_config:
+            if server_config.stream_based_speeds and server_config.stream_based_speeds.enabled:
+                speeds_config = server_config.stream_based_speeds
+                
+                # Look for exact match in speeds dict
+                if total_streams in speeds_config.speeds:
+                    return speeds_config.speeds[total_streams]
+                
+                # Find the highest stream count that is <= current count
+                applicable_counts = [count for count in speeds_config.speeds.keys() if count <= total_streams]
+                if applicable_counts:
+                    highest_applicable = max(applicable_counts)
+                    return speeds_config.speeds[highest_applicable]
+                
+                # Use default if provided
+                if speeds_config.default is not None:
+                    return speeds_config.default
+                
+                # Fallback to max_upload if no default
+                return self._config.max_upload
+        
+        return self._config.max_upload
 
 
     def run(self):
@@ -91,6 +141,17 @@ class BaseServer(threading.Thread):
             return
 
         self._module.reduction_value_dict[self._server_config] = reduction
+        self._module._update_event.set()
+    
+    
+    def set_stream_count(self, count: int) -> None:
+        """Set the stream count for the server and dispatch an update event."""
+        old_count = self._module.stream_count_dict.get(self._server_config)
+        
+        if old_count == count:
+            return
+        
+        self._module.stream_count_dict[self._server_config] = count
         self._module._update_event.set()
     
 
@@ -172,23 +233,30 @@ class PlexServer(BaseServer):
         
         if res_json["MediaContainer"]["size"] == 0:
             logger.debug(f"{self._logger_prefix} No sessions found")
+            self.set_stream_count(0)
             return 0
         
         count = 0
+        stream_count = 0
         session_ids: list[str] = []
 
         for session in res_json["MediaContainer"]["Metadata"]:
             session_ids.append(session["Session"]["id"])
             
-            count += self.process_session(
+            bandwidth = self.process_session(
                 bandwidth   = int(session["Session"]["bandwidth"]),
                 paused      = session["Player"]["state"] == "paused",
                 ip_address  = session["Player"]["address"],
                 session_id  = session["Session"]["id"],
                 title       = session["title"]
             )
+            
+            count += bandwidth
+            if bandwidth > 0:  # Only count non-ignored sessions
+                stream_count += 1
         
         self.remove_old_paused(session_ids)
+        self.set_stream_count(stream_count)
 
         return count
 
@@ -211,20 +279,26 @@ class TautulliServer(BaseServer):
             raise Exception(f"Error from Tautulli: {res_json['response']['message']}")
         
         count = 0
+        stream_count = 0
         session_ids: list[str] = []
 
         for session in res_json["response"]["data"]["sessions"]:
             session_ids.append(session["session_id"])
 
-            count += self.process_session(
+            bandwidth = self.process_session(
                 bandwidth   = int(session["bandwidth"]),
                 paused      = session["state"] == "paused",
                 ip_address  = session["ip_address"],
                 session_id  = session["session_id"],
                 title       = session["full_title"]
             )
+            
+            count += bandwidth
+            if bandwidth > 0:  # Only count non-ignored sessions
+                stream_count += 1
         
         self.remove_old_paused(session_ids)
+        self.set_stream_count(stream_count)
 
         return count
 
@@ -245,6 +319,7 @@ class JellyfinServer(BaseServer):
         res_json: list[dict] = res.json()
         
         count = 0
+        stream_count = 0
         session_ids: list[str] = []
 
         for session in res_json:
@@ -261,15 +336,20 @@ class JellyfinServer(BaseServer):
                 else:
                     bandwidth = int(session["TranscodingInfo"]["Bitrate"])
 
-                count += self.process_session(
+                processed_bandwidth = self.process_session(
                     bandwidth   = bandwidth,
                     paused      = session["PlayState"]["IsPaused"],
                     ip_address  = session["RemoteEndPoint"],
                     session_id  = session["Id"],
                     title       = session["NowPlayingItem"]["Name"]
                 )
+                
+                count += processed_bandwidth
+                if processed_bandwidth > 0:  # Only count non-ignored sessions
+                    stream_count += 1
 
         self.remove_old_paused(session_ids)
+        self.set_stream_count(stream_count)
 
         return int(round(bit_conv(count, 'bit', 'Kbit'), 0))
 
@@ -288,6 +368,7 @@ class EmbyServer(BaseServer):
         res_json: list[dict] = res.json()
         
         count = 0
+        stream_count = 0
         session_ids: list[str] = []
 
         for session in res_json:
@@ -304,15 +385,20 @@ class EmbyServer(BaseServer):
                     for stream in session["NowPlayingItem"]["MediaStreams"]:
                         bandwidth += int(stream.get("BitRate", 0))
 
-                count += self.process_session(
+                processed_bandwidth = self.process_session(
                     bandwidth   = bandwidth,
                     paused      = session["PlayState"]["IsPaused"],
                     ip_address  = session["RemoteEndPoint"],
                     session_id  = session["Id"],
                     title       = session["NowPlayingItem"]["Name"]
                 )
+                
+                count += processed_bandwidth
+                if processed_bandwidth > 0:  # Only count non-ignored sessions
+                    stream_count += 1
 
         self.remove_old_paused(session_ids)
+        self.set_stream_count(stream_count)
 
         return int(round(bit_conv(count, 'bit', 'Kbit'), 0))
 

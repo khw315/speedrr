@@ -22,8 +22,11 @@ class ScheduleModule:
     def get_reduction_value(self) -> tuple[float, float]:
         "How much to reduce the speed by, in the config's units. Returns a tuple of `(upload, download)`."
 
-        logger.info(f"<schedule> Upload reduction values = {'; '.join(f'{cfg.start}-{cfg.end}: {reduction[0]}' for cfg, reduction in self.reduction_value_dict.items())}")
-        logger.info(f"<schedule> Download reduction values = {'; '.join(f'{cfg.start}-{cfg.end}: {reduction[1]}' for cfg, reduction in self.reduction_value_dict.items())}")
+        def format_value(val):
+            return "unlimited" if val == float('inf') else val
+        
+        logger.info(f"<schedule> Upload reduction values = {'; '.join(f'{cfg.start}-{cfg.end}: {format_value(reduction[0])}' for cfg, reduction in self.reduction_value_dict.items())}")
+        logger.info(f"<schedule> Download reduction values = {'; '.join(f'{cfg.start}-{cfg.end}: {format_value(reduction[1])}' for cfg, reduction in self.reduction_value_dict.items())}")
         
         return (
             sum([reduction[0] for reduction in self.reduction_value_dict.values()]),
@@ -63,12 +66,18 @@ class ScheduleThread(threading.Thread):
             self._days_as_int.append(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].index(day))
         
         if isinstance(self._config.upload, str):
-            self._upload_reduce_by = int(self._config.upload[:-1]) / 100 * self._module._config.max_upload
+            if self._config.upload.lower() == "unlimited":
+                self._upload_reduce_by = float('inf')
+            else:
+                self._upload_reduce_by = int(self._config.upload[:-1]) / 100 * self._module._config.max_upload
         else:
             self._upload_reduce_by = self._config.upload
 
         if isinstance(self._config.download, str):
-            self._download_reduce_by = int(self._config.download[:-1]) / 100 * self._module._config.max_download
+            if self._config.download.lower() == "unlimited":
+                self._download_reduce_by = float('inf')
+            else:
+                self._download_reduce_by = int(self._config.download[:-1]) / 100 * self._module._config.max_download
         else:
             self._download_reduce_by = self._config.download
         

@@ -1,0 +1,221 @@
+################################################################################
+# STREAM-BASED SPEED CONTROL - EXAMPLE CONFIGURATION
+################################################################################
+# This configuration demonstrates the stream-based upload speed control feature
+# implemented for GitHub issue #33: 
+# https://github.com/itschasa/speedrr/issues/33
+#
+# WHAT IS STREAM-BASED SPEED CONTROL?
+# Instead of reducing upload speed based on bandwidth usage, you can configure
+# speedrr to set SPECIFIC upload speeds based on the NUMBER of active streams.
+#
+# EXAMPLE: 
+#   - 0 streams = unlimited upload (seed at full speed!)
+#   - 1 stream  = 10 Mbit/s (plenty for one stream)
+#   - 2 streams = 8 Mbit/s  (split between streams)
+#   - 3+ streams = 6 Mbit/s (conservative for multiple streams)
+################################################################################
+
+
+# ============================================================================
+# GENERAL SPEEDRR CONFIGURATION
+# ============================================================================
+
+# Directory where speedrr will store log files
+logs_path: ./logs/
+
+# Units to use for all speed values throughout this config
+# Options: bit, B, Kbit, Kibit, KB, KiB, Mbit, Mibit, MB, MiB, Gbit, Gibit, GB, GiB
+# Note: Capitalization matters! Mbit = megabits, MB = megabytes
+units: Mbit
+
+# Minimum upload speed (speedrr will never go below this)
+# Set this to a reasonable minimum to keep torrents alive
+min_upload: 5
+
+# Maximum upload speed (your internet connection's upload limit)
+# Recommended: 70-80% of your actual upload speed
+max_upload: 15
+
+# Minimum download speed (speedrr will never go below this)
+min_download: 10
+
+# Maximum download speed (your internet connection's download limit)
+# Recommended: 70-100% of your actual download speed
+max_download: 100
+
+# Whether to use manual share allocation instead of automatic torrent counting
+# false = Automatically split bandwidth based on active torrents (recommended)
+# true = Use manually configured download_shares and upload_shares
+manual_speed_algorithm_share: false
+
+
+# ============================================================================
+# TORRENT CLIENT CONFIGURATION
+# ============================================================================
+
+clients:
+  - type: qbittorrent
+    url: http://localhost:8080
+    username: admin
+    password: adminpass
+    
+    # Only used when manual_speed_algorithm_share is true
+    download_shares: 1
+    upload_shares: 1
+    
+    # Whether to verify SSL certificates (set false for self-signed certs)
+    https_verify: true
+
+
+# ============================================================================
+# MODULES - WHERE THE MAGIC HAPPENS
+# ============================================================================
+
+modules:
+
+  # --------------------------------------------------------------------------
+  # MEDIA SERVERS MODULE - STREAM-BASED SPEED CONTROL
+  # --------------------------------------------------------------------------
+  # This module monitors your media servers and adjusts upload speeds
+  # based on the NUMBER of active streams (new feature!)
+  
+  media_servers:
+    - type: plex  # Options: plex, tautulli, jellyfin, emby
+      url: http://localhost:32400
+      
+      # PLEX ONLY: Your Plex authentication token
+      # How to find: https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/
+      token: your_plex_token_here
+      
+      # TAUTULLI/JELLYFIN/EMBY ONLY: API key (comment out 'token' above if using these)
+      # api_key: your_api_key_here
+      
+      https_verify: true
+      
+      # Multiplier for reported bandwidth (useful if Plex over-reports)
+      # 1.0 = use reported values, 0.8 = reduce by 20%, 1.2 = increase by 20%
+      bandwidth_multiplier: 1.0
+      
+      # How often (in seconds) to check for stream updates
+      # Lower = more responsive, but more API calls
+      # Recommended: 5-10 seconds
+      update_interval: 5
+      
+      # Streams to ignore (won't count toward stream-based speeds)
+      ignore_streams:
+        # Ignore all local/private IP streams (LAN users)
+        local: true
+        
+        # Optionally ignore specific IP addresses or networks
+        # Examples: 192.168.1.0/24, 10.0.0.0/8, specific IPs like 1.2.3.4
+        ip_networks: []
+        
+        # Ignore streams paused for more than X seconds
+        # Set to -1 to disable this feature
+        # Recommended: 300 (5 minutes) to avoid counting stuck streams
+        paused_after: 300
+      
+      # ======================================================================
+      # STREAM-BASED SPEEDS CONFIGURATION (THE NEW FEATURE!)
+      # ======================================================================
+      stream_based_speeds:
+        # Set to true to enable stream-based speed control
+        # Set to false (or remove this section) to use bandwidth-based mode
+        enabled: true
+        
+        # Speed mapping: stream_count: upload_speed
+        # Speedrr will count active streams and set upload speed accordingly
+        speeds:
+          # VALUE TYPES: You can use any of these formats:
+          # - Numbers: 10, 15, 20 (in the units specified above)
+          # - Percentages: "50%", "80%" (of max_upload)
+          # - Unlimited: unlimited (removes speed limit)
+          
+          0: unlimited    # No active streams = max upload for torrents!
+          1: 10           # 1 stream = 10 Mbit/s (plenty for HD streaming)
+          2: 8            # 2 streams = 8 Mbit/s
+          3: 6            # 3 streams = 6 Mbit/s  
+          4: 5            # 4+ streams = 5 Mbit/s (conservative for many streams)
+          
+          # MORE EXAMPLES (commented out):
+          # 0: "100%"     # Use max_upload when no streams
+          # 1: "70%"      # Use 70% of max_upload for 1 stream
+          # 2: "50%"      # Use 50% of max_upload for 2 streams
+          # 5: 3          # Use 3 Mbit/s for 5+ streams
+        
+        # Optional: Fallback speed for undefined stream counts
+        # If a stream count isn't explicitly defined above, speedrr will:
+        # 1. Use the highest defined count's speed that is <= current count
+        # 2. If no applicable count found, use this default
+        # 3. If no default set, use max_upload
+        default: 5
+        
+        # HOW IT WORKS:
+        # - Speedrr counts only NON-IGNORED streams (respects ignore_streams above)
+        # - Local streams, paused streams, and streams in ip_networks are NOT counted
+        # - Upload speed is set based on the total count across all media servers
+        # - Download speeds are NOT affected by stream-based mode
+        # - Works alongside the schedule module for combined control
+
+
+  # --------------------------------------------------------------------------
+  # SCHEDULE MODULE (OPTIONAL)
+  # --------------------------------------------------------------------------
+  # Use schedules to further adjust speeds during specific times/days
+  # This works ALONGSIDE stream-based speeds:
+  # - Stream-based speeds control the BASE upload speed
+  # - Schedules can apply ADDITIONAL reductions if needed
+  
+  schedule:
+    # Example: No additional restrictions during weekdays
+    - start: "08:00"
+      end: "22:00"
+      days: [mon, tue, wed, thu, fri]
+      upload: 0%        # 0% = no reduction from stream-based speed
+      download: 0%      # 0% = no reduction from max_download
+    
+    # ADDITIONAL SCHEDULE EXAMPLES (commented out):
+    
+    # Example: Maximize upload speed during off-peak hours
+    # - start: "00:00"
+    #   end: "07:00"
+    #   days: [all]
+    #   upload: unlimited   # Override stream-based speeds with unlimited
+    #   download: unlimited
+    
+    # Example: Conservative during peak hours on weekends
+    # - start: "12:00"
+    #   end: "23:00"
+    #   days: [sat, sun]
+    #   upload: "50%"      # Reduce stream-based speed by 50%
+    #   download: "30%"    # Reduce max_download by 30%
+
+
+################################################################################
+# TIPS AND BEST PRACTICES
+################################################################################
+#
+# 1. START CONSERVATIVE: Begin with lower speeds and increase if streams buffer
+#
+# 2. CONSIDER YOUR UPLOAD SPEED:
+#    - 1080p stream needs ~5-10 Mbit/s
+#    - 4K stream needs ~25-50 Mbit/s
+#    - Leave headroom for overhead and multiple streams
+#
+# 3. MONITOR LOGS: Watch speedrr's output to see:
+#    - "<media_servers> Total active streams: X"
+#    - "New calculated upload speed: Y Mbit"
+#    - Helps you fine-tune your speed mappings
+#
+# 4. LOCAL STREAMS: Set ignore_streams.local: true to avoid throttling
+#    your upload when family members stream on the same network
+#
+# 5. COMBINE WITH SCHEDULES: Use both features together:
+#    - Stream-based speeds for dynamic control
+#    - Schedules for time-based adjustments
+#
+# 6. TESTING: Start with stream_based_speeds.enabled: false to test
+#    your basic configuration, then enable it once everything works
+#
+################################################################################
