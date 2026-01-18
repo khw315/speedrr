@@ -26,7 +26,7 @@ This script is ideal for users with limited upload speed, however anyone can use
     - Bandwidth is split between them, by number of downloading/uploading torrents.
 - Schedule a time/day when upload speed should be lowered.
 - Support for unlimited speeds in schedules (equivalent to turning off speed limits).
-- **Stream-based speed control**: Set different upload speeds based on the number of active streams instead of bandwidth usage.
+- Stream-based speed control: Set different upload speeds based on the number of active streams instead of bandwidth usage.
 
 
 
@@ -76,17 +76,17 @@ cd /boot/config/plugins/dockerMan/templates-user && touch my-speedrr.xml && nano
 
 ## Stream-Based Speed Control
 
-**New in this version!** Instead of dynamically reducing upload speed based on bandwidth usage, you can configure speedrr to set specific upload speeds based on the **number of active streams**.
+Instead of dynamically reducing upload speed based on bandwidth usage, you can configure speedrr to set specific upload speeds based on the number of active streams.
 
 ### Why Use Stream-Based Speeds?
 
-Traditional bandwidth-based control is reactive—it reduces your upload speed based on how much bandwidth streams are using. Stream-based control is **predictive**—you define exactly what upload speed you want for different numbers of streams.
+Traditional bandwidth-based control is reactive—it reduces your upload speed based on how much bandwidth streams are using. Stream-based control is predictive—you define exactly what upload speed you want for different numbers of streams.
 
-**Benefits:**
-- 🎯 **More predictable** - You control exactly what happens with 1, 2, 3+ streams
-- 🚀 **Max out when idle** - Set unlimited upload when no streams are active
-- ⚖️ **Better balance** - Fine-tune the trade-off between streaming quality and torrent upload
-- 📊 **Easier to configure** - Just count streams instead of estimating bandwidth needs
+Benefits:
+- More predictable - You control exactly what happens with 1, 2, 3+ streams
+- Max out when idle - Set unlimited upload when no streams are active
+- Better balance - Fine-tune the trade-off between streaming quality and torrent upload
+- Easier to configure - Just count streams instead of estimating bandwidth needs
 
 ### Quick Start
 
@@ -112,30 +112,30 @@ modules:
 
 ### Configuration Options
 
-**`speeds` mapping** - Define upload speeds for different stream counts:
+`speeds` mapping - Define upload speeds for different stream counts:
 - Numbers: `10`, `15`, `20` (in your configured units)
 - Percentages: `"50%"`, `"80%"` (of max_upload)  
 - Unlimited: `unlimited` (removes speed limit)
 
-**`default`** (optional) - Fallback speed for undefined stream counts. If omitted, uses the highest defined count's speed.
+`default` (optional) - Fallback speed for undefined stream counts. If omitted, uses the highest defined count's speed.
 
 ### How It Works
 
-1. **Stream Counting**: Speedrr monitors your media server and counts active streams
-2. **Filtering**: Local streams, paused streams, and ignored IPs are excluded from the count
-3. **Speed Selection**: Upload speed is set based on your configured mapping
-4. **Dynamic Updates**: Speed adjusts automatically as streams start/stop
+1. Stream Counting: Speedrr monitors your media server and counts active streams
+2. Filtering: Local streams, paused streams, and ignored IPs are excluded from the count
+3. Speed Selection: Upload speed is set based on your configured mapping
+4. Dynamic Updates: Speed adjusts automatically as streams start/stop
 
 ### Use Cases
 
-**Scenario 1: Maximize seeding when idle**
+Scenario 1: Maximize seeding when idle
 ```yaml
 speeds:
   0: unlimited   # Full upload when not streaming
   1: 8           # Conservative when streaming
 ```
 
-**Scenario 2: Granular control for multiple users**
+Scenario 2: Granular control for multiple users
 ```yaml
 speeds:
   0: unlimited
@@ -145,7 +145,7 @@ speeds:
   4: 6           # Four or more users
 ```
 
-**Scenario 3: Using percentages**
+Scenario 3: Using percentages
 ```yaml
 speeds:
   0: "100%"      # Full max_upload
