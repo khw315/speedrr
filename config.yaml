@@ -121,6 +121,21 @@ modules:
         # After a stream has been paused for this amount of seconds, it will be ignored from calculations
         # Note: To disable this feature, set to -1.
         paused_after: 300
+
+      stream_based_speeds:
+        enabled: true
+        
+        # Define upload speeds for different stream counts
+        speeds:
+          0: unlimited    # No streams = unlimited upload
+          1: 10           # 1 stream = 10 Mbit/s upload
+          2: 8            # 2 streams = 8 Mbit/s upload
+          3: 6            # 3 streams = 6 Mbit/s upload
+          4: 5            # 4+ streams = 5 Mbit/s upload
+        
+        # Optional: Default speed for stream counts not explicitly defined
+        # If not set, uses the highest defined count's speed
+        default: 5
   
 
   # Changes the upload/download speed based on the time of day, and what day of the week
@@ -141,10 +156,19 @@ modules:
       # The upload speed deducted in this time period.
       # Note: This can be a percentage of the maximum or a fixed value (uses units specified at the top of config).
       # Example: 50%, 10, 5, 80%, 20%, 0
+      # Note: Use "unlimited" to set unlimited speed (equivalent to ∞ in qBittorrent)
       upload: 60%
 
       # The download speed deducted in this time period.
       # Note: This can be a percentage of the maximum or a fixed value (uses units specified at the top of config).
-      # Example: 50%, 10, 5, 80%, 20%, 0
+      # Example: 50%, 10, 5, 80%, 20%, 0  
+      # Note: Use "unlimited" to set unlimited speed (equivalent to ∞ in qBittorrent)
       download: 40%
+
+  # Example: Set unlimited speeds during off-peak hours (e.g., midnight to 7am)
+  # - start: "00:00"
+  #   end: "06:59"
+  #   days: [all]
+  #   upload: unlimited
+  #   download: unlimited
 

@@ -21,6 +21,12 @@ class IgnoreStreamConfig(YAMLWizard):
     paused_after: int
 
 @dataclass(frozen=True)
+class StreamBasedSpeedsConfig(YAMLWizard):
+    enabled: bool
+    speeds: dict[int, Union[int, float, str]]
+    default: Optional[Union[int, float, str]] = None
+
+@dataclass(frozen=True)
 class MediaServerConfig(YAMLWizard):
     type: Literal['plex', 'tautulli', 'jellyfin', 'emby']
     url: str
@@ -30,6 +36,7 @@ class MediaServerConfig(YAMLWizard):
     ignore_streams: IgnoreStreamConfig
     token: Optional[str] = None
     api_key: Optional[str] = None
+    stream_based_speeds: Optional[StreamBasedSpeedsConfig] = None
 
     def __hash__(self) -> int:
         return super().__hash__()
