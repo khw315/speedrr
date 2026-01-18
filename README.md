@@ -153,14 +153,6 @@ speeds:
   2: "50%"       # 50% of max_upload
 ```
 
-### Tips
-
-- 💡 **Start conservative** - Begin with lower speeds and increase if streams don't buffer
-- 🏠 **Ignore local streams** - Set `ignore_streams.local: true` to avoid throttling LAN users
-- 📅 **Combine with schedules** - Use both stream-based speeds AND time-based schedules
-- 📝 **Monitor logs** - Watch for `Total active streams: X` to verify your setup
-- 🎬 **Know your streams** - 1080p needs ~5-10 Mbit/s, 4K needs ~25-50 Mbit/s
-
 ### Complete Example
 
 See [`config.stream_based.example.yaml`](config.stream_based.example.yaml) for a fully documented configuration with detailed comments and multiple examples.
