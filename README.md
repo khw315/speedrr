@@ -4,6 +4,9 @@
     <h1>speedrr - Dynamic Upload and Download Speed Manager for Torrenting</h1>
 </p>
 
+> [!NOTE]
+> This repository is a fork of [itschasa/speedrr](https://github.com/itschasa/speedrr).
+
 Change your torrent client's upload speed dynamically, on certain events such as:
 - When a Plex/Jellyfin/Emby stream starts
 - Time of day and day of the week
