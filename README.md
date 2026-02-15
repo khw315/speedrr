@@ -30,6 +30,7 @@ This script is ideal for users with limited upload speed, however anyone can use
 - Schedule a time/day when upload speed should be lowered.
 - Support for unlimited speeds in schedules (equivalent to turning off speed limits).
 - Stream-based speed control: Set different upload speeds based on the number of active streams instead of bandwidth usage.
+- Resilient startup: If a media server is temporarily unavailable, Speedrr retries with exponential backoff instead of crashing, and starts with safe defaults until the server is reachable.
 
 
 
