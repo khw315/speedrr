@@ -39,7 +39,38 @@ class MediaServerModule:
                 logger.critical(f"<media_servers> Unknown media server type in config: {server.type}")
                 exit()
 
-            self.servers[-1].get_bandwidth()
+            self._initial_bandwidth_check(self.servers[-1])
+
+    
+    def _initial_bandwidth_check(self, server, max_retries: int = 5, base_delay: float = 2.0) -> None:
+        """Attempt an initial bandwidth check with retry + exponential backoff.
+        
+        If the media server is temporarily unavailable, this retries instead of
+        crashing the entire application. On final failure, the server starts with
+        0 bandwidth and will pick up real values on the next polling cycle.
+        """
+        for attempt in range(1, max_retries + 1):
+            try:
+                server.get_bandwidth()
+                return
+            except Exception:
+                if attempt < max_retries:
+                    delay = base_delay * (2 ** (attempt - 1))
+                    logger.warning(
+                        f"<media_servers> Initial bandwidth check for {server._server_config.url} failed "
+                        f"(attempt {attempt}/{max_retries}), retrying in {delay}s...\n"
+                        + traceback.format_exc()
+                    )
+                    time.sleep(delay)
+                else:
+                    logger.error(
+                        f"<media_servers> Initial bandwidth check for {server._server_config.url} failed "
+                        f"after {max_retries} attempts. Starting with 0 bandwidth; "
+                        f"will recover on next polling cycle.\n"
+                        + traceback.format_exc()
+                    )
+                    server.set_reduction(0)
+                    server.set_stream_count(0)
 
 
     def get_reduction_value(self) -> tuple[float, float]:
