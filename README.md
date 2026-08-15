@@ -27,7 +27,45 @@ This tool is ideal for users with limited upload speed; however, anyone can use 
 - **Stream-Based Speed Control**: Set specific upload speeds based on active stream count instead of bandwidth estimates.
 - **Time/Day Schedules**: Flexible time-of-day and day-of-week speed limits with support for percentages (`"50%"`), fixed values, and `unlimited`.
 - **Resilient Startup**: Exponential backoff retries if media servers or torrent clients are temporarily offline.
-- **Single Static Binary**: No Python interpreter or external runtime dependencies required.
+## Process Architecture
+
+Speedrr uses an asynchronous event-driven workflow to monitor media servers, evaluate schedules, and adjust torrent client speeds dynamically:
+
+```mermaid
+graph LR
+    subgraph Stage1["1. Trigger & Monitoring"]
+        MS["Media Server Polling<br/><i>(Plex / Jellyfin / Emby / Tautulli)</i>"]
+        SCHED["Schedule Evaluator<br/><i>(Overnight & Weekend Workers)</i>"]
+    end
+
+    subgraph Stage2["2. Filter & Evaluate"]
+        FILT["Stream Filters<br/><i>(Local LAN & Paused Timeout)</i>"]
+        WIN["Active Window State<br/><i>(Time Window Check)</i>"]
+    end
+
+    subgraph Stage3["3. Target Speed Calculation"]
+        CALC{"Target Speed Resolver<br/><i>(Stream Mapping + Reductions)</i>"}
+    end
+
+    subgraph Stage4["4. Client Enforcement"]
+        QBIT["qBittorrent Web API<br/><i>(HTTP 200/204 Auth)</i>"]
+        TRANS["Transmission RPC<br/><i>(CSRF Session ID Challenge)</i>"]
+    end
+
+    MS -->|Active Sessions| FILT
+    SCHED -->|Active Window| WIN
+    FILT -->|Filtered Stream Count| CALC
+    WIN -->|Schedule Reductions| CALC
+    CALC -->|Calculated Limits| QBIT
+    CALC -->|Calculated Limits| TRANS
+
+    classDef focal fill:#fff3ed,stroke:#eb6c36,stroke-width:2px,color:#eb6c36;
+    class CALC focal;
+```
+
+
+
+
 
 
 
