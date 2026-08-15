@@ -8,10 +8,10 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o speedrr main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o speedrr .
 
 # Final stage
-FROM alpine:latest
+FROM alpine:3.21
 
 LABEL org.opencontainers.image.source="https://github.com/khw315/speedrr"
 LABEL org.opencontainers.image.licenses=GPL-3.0
