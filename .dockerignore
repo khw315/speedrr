@@ -1,12 +1,43 @@
+# Version Control & CI/CD
 .git
 .github
 .gitignore
 .dockerignore
+Dockerfile*
+docker-compose*.yml
+sonar-project.properties
+
+# IDEs & Editors
 .vscode
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+.idea
+.zed
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Build Artifacts & Binaries
+speedrr
+speedrr.exe
+bin/
+dist/
+tmp/
+*.out
+*.test
+*.prof
+
+# Logs
 *.log
 logs/
-config.yaml
+
+# Local Configurations & Examples
+config*.yaml
+config*.yml
+*.env
+
+# Documentation & Assets
+*.md
+images/
+speedrr-unraid.xml
+LICENSE
