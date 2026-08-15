@@ -210,6 +210,7 @@ class BaseServer(threading.Thread):
                 return True
         return False
 
+    # pylint: disable=too-many-arguments,too-many-positional-arguments
     def process_session(
         self, bandwidth: int, paused: bool, ip_address: str, session_id: str, title: str
     ) -> int:
