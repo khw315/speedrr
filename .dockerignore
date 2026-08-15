@@ -1,0 +1,12 @@
+.git
+.github
+.gitignore
+.dockerignore
+.vscode
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.log
+logs/
+config.yaml

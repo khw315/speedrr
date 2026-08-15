@@ -1,17 +1,19 @@
+"""CLI argument parsing helper."""
+
 import argparse
-import os
 import logging
+import os
 
 
-
-def is_valid_file(parser: argparse.ArgumentParser, arg) -> str:
+def is_valid_file(parser: argparse.ArgumentParser, arg: str) -> str:
+    """Validate that the given file path exists."""
     if not os.path.exists(arg):
         parser.error(f"invalid path {arg}")
-    else:
-        return str(arg)
+    return str(arg)
 
 
 def load_args() -> argparse.Namespace:
+    """Parse command line arguments."""
     argparser = argparse.ArgumentParser()
     argparser.add_argument(
         '--config_path',
