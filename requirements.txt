@@ -1,6 +1,6 @@
-dataclass_wizard
-PyYAML
-qbittorrent-api
-transmission-rpc
-httpx
-colorama
+dataclass_wizard==1.0.0
+PyYAML==6.0.3
+qbittorrent-api==2026.8.0
+transmission-rpc==7.0.12
+httpx==0.28.1
+colorama==0.4.6
