@@ -79,7 +79,7 @@ func NewMediaServerModule(appConfig *config.SpeedrrConfig, serverConfigs []confi
 	return m, nil
 }
 
-func newBaseServer(appConfig *config.SpeedrrConfig, serverConfig config.MediaServerConfig, module *MediaServerModule) BaseServer {
+func newBaseServer(appConfig *config.SpeedrrConfig, serverConfig config.MediaServerConfig, module *MediaServerModule) *BaseServer {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: !serverConfig.HTTPSVerify,
@@ -92,7 +92,7 @@ func newBaseServer(appConfig *config.SpeedrrConfig, serverConfig config.MediaSer
 
 	baseURL := strings.TrimRight(serverConfig.URL, "/")
 
-	return BaseServer{
+	return &BaseServer{
 		appConfig:    appConfig,
 		serverConfig: serverConfig,
 		module:       module,
@@ -376,7 +376,7 @@ func (b *BaseServer) runLoop(ctx context.Context, getBandwidthFn func(ctx contex
 // Plex Server Implementation
 
 type PlexServer struct {
-	BaseServer
+	*BaseServer
 }
 
 func (p *PlexServer) ServerConfig() config.MediaServerConfig {
@@ -467,7 +467,7 @@ func (p *PlexServer) Run(ctx context.Context) {
 // Tautulli Server Implementation
 
 type TautulliServer struct {
-	BaseServer
+	*BaseServer
 }
 
 func (t *TautulliServer) ServerConfig() config.MediaServerConfig {
@@ -554,7 +554,7 @@ func (t *TautulliServer) Run(ctx context.Context) {
 // Jellyfin Server Implementation
 
 type JellyfinServer struct {
-	BaseServer
+	*BaseServer
 }
 
 func (j *JellyfinServer) ServerConfig() config.MediaServerConfig {
@@ -644,7 +644,7 @@ func (j *JellyfinServer) Run(ctx context.Context) {
 // Emby Server Implementation
 
 type EmbyServer struct {
-	BaseServer
+	*BaseServer
 }
 
 func (e *EmbyServer) ServerConfig() config.MediaServerConfig {
