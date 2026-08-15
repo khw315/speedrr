@@ -8,7 +8,7 @@ from helpers.log_loader import logger
 from helpers.bit_convert import bit_conv
 
 
-class qBittorrentClient:  # pylint: disable=invalid-name
+class QBittorrentClient:
     """qBittorrent client wrapper."""
 
     def __init__(self, config: SpeedrrConfig, config_client: ClientConfig) -> None:
@@ -84,3 +84,7 @@ class qBittorrentClient:  # pylint: disable=invalid-name
             self._client.transfer_set_download_limit(
                 max(1, int(bit_conv(speed, self._config.units, 'B')))
             )
+
+
+# Backward-compatibility alias for camelCase naming
+qBittorrentClient = QBittorrentClient  # pylint: disable=invalid-name

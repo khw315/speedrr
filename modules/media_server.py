@@ -13,6 +13,8 @@ from helpers.config import SpeedrrConfig, MediaServerConfig
 from helpers.log_loader import logger
 from helpers.bit_convert import bit_conv
 
+LOG_GETTING_BANDWIDTH = "%s Getting bandwidth"
+
 
 class MediaServerModule:
     """Module managing media server stream and bandwidth monitoring."""
@@ -193,6 +195,21 @@ class BaseServer(threading.Thread):
         self._module.stream_count_dict[self._server_config] = count
         self._module.notify_update()
 
+    def _is_local_stream(self, ip_address: str) -> bool:
+        """Check if an IP address belongs to a local stream."""
+        if self._server_config.ignore_streams.local:
+            if ip_address == "lan" or ipaddress.ip_address(ip_address).is_private:
+                return True
+        if self._server_config.ignore_streams.ip_networks:
+            ip = ipaddress.ip_address(ip_address)
+            networks = (
+                ipaddress.ip_network(network)
+                for network in self._server_config.ignore_streams.ip_networks
+            )
+            if any(ip in network for network in networks):
+                return True
+        return False
+
     def process_session(
         self, bandwidth: int, paused: bool, ip_address: str, session_id: str, title: str
     ) -> int:
@@ -220,21 +237,7 @@ class BaseServer(threading.Thread):
                 )
                 del self._paused_since[session_id]
 
-        local_ip: bool = False
-        if self._server_config.ignore_streams.local:
-            if ip_address == "lan" or ipaddress.ip_address(ip_address).is_private:
-                local_ip = True
-
-        if self._server_config.ignore_streams.ip_networks:
-            ip = ipaddress.ip_address(ip_address)
-            networks = (
-                ipaddress.ip_network(network)
-                for network in self._server_config.ignore_streams.ip_networks
-            )
-            if any(ip in network for network in networks):
-                local_ip = True
-
-        if local_ip:
+        if self._is_local_stream(ip_address):
             logger.debug(
                 "%s Ignoring local stream %s:%s (%s)",
                 self._logger_prefix, title, session_id, ip_address
@@ -249,13 +252,13 @@ class BaseServer(threading.Thread):
 
     def remove_old_paused(self, active_session_ids: list[str]) -> None:
         """Remove sessions from paused dict if no longer active."""
-        for session_id in list(self._paused_since.keys()):
-            if session_id not in active_session_ids:
-                logger.debug(
-                    "%s Removing %s from paused_since, no longer in session list",
-                    self._logger_prefix, session_id
-                )
-                del self._paused_since[session_id]
+        expired = [sid for sid in self._paused_since if sid not in active_session_ids]
+        for session_id in expired:
+            logger.debug(
+                "%s Removing %s from paused_since, no longer in session list",
+                self._logger_prefix, session_id
+            )
+            del self._paused_since[session_id]
 
     def run(self) -> None:
         while True:
@@ -278,7 +281,7 @@ class PlexServer(BaseServer):
     """Plex server integration."""
 
     def get_bandwidth(self) -> int:
-        logger.debug("%s Getting bandwidth", self._logger_prefix)
+        logger.debug(LOG_GETTING_BANDWIDTH, self._logger_prefix)
         res = self._client.get(
             "/status/sessions",
             params={"X-Plex-Token": self._server_config.token, "X-Plex-Language": "en"},
@@ -322,7 +325,7 @@ class TautulliServer(BaseServer):
     """Tautulli server integration."""
 
     def get_bandwidth(self) -> int:
-        logger.debug("%s Getting bandwidth", self._logger_prefix)
+        logger.debug(LOG_GETTING_BANDWIDTH, self._logger_prefix)
         res = self._client.get(
             "/api/v2",
             params={"apikey": self._server_config.api_key, "cmd": "get_activity"}
@@ -360,7 +363,7 @@ class JellyfinServer(BaseServer):
     """Jellyfin server integration."""
 
     def get_bandwidth(self) -> int:
-        logger.debug("%s Getting bandwidth", self._logger_prefix)
+        logger.debug(LOG_GETTING_BANDWIDTH, self._logger_prefix)
         res = self._client.get(
             "/Sessions",
             headers={"Authorization": f'MediaBrowser Token="{self._server_config.api_key}"'}
@@ -408,7 +411,7 @@ class EmbyServer(BaseServer):
     """Emby server integration."""
 
     def get_bandwidth(self) -> int:
-        logger.debug("%s Getting bandwidth", self._logger_prefix)
+        logger.debug(LOG_GETTING_BANDWIDTH, self._logger_prefix)
         res = self._client.get(f"/Sessions?api_key={self._server_config.api_key}")
         logger.debug("%s Got %s response from Emby", self._logger_prefix, res.status_code)
         res.raise_for_status()
