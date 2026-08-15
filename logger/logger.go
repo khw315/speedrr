@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -77,7 +78,22 @@ func SetFileHandler(filePath string, lvl Level) error {
 		globalLogger.fileWriter.Close()
 	}
 
-	f, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	cleanPath := filepath.Clean(filePath)
+	fi, err := os.Stat(cleanPath)
+	if err == nil && fi.IsDir() {
+		cleanPath = filepath.Join(cleanPath, "speedrr.log")
+	} else if strings.HasSuffix(filePath, "/") || strings.HasSuffix(filePath, "\\") {
+		cleanPath = filepath.Join(filePath, "speedrr.log")
+	}
+
+	dir := filepath.Dir(cleanPath)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+	}
+
+	f, err := os.OpenFile(cleanPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return err
 	}
@@ -85,6 +101,7 @@ func SetFileHandler(filePath string, lvl Level) error {
 	globalLogger.fileLevel = lvl
 	return nil
 }
+
 
 func logMessage(lvl Level, lvlStr string, format string, v ...interface{}) {
 	globalLogger.mu.Lock()

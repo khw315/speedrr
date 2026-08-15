@@ -91,9 +91,10 @@ func (c *QBittorrentClient) login(ctx context.Context) error {
 	if resp.StatusCode == http.StatusForbidden {
 		return fmt.Errorf("<qbit|%s> Failed to login to qBittorrent, temporarily banned, try again later", c.clientConfig.URL)
 	}
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("<qbit|%s> Failed to login to qBittorrent, check your credentials (status %d)", c.clientConfig.URL, resp.StatusCode)
 	}
+
 
 	c.loggedIn = true
 	return nil
