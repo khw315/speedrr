@@ -2,7 +2,11 @@
 
 from dataclasses import dataclass
 from typing import List, Optional, Union, Literal
-from dataclass_wizard import YAMLWizard  # type: ignore # pylint: disable=no-name-in-module
+try:
+    from dataclass_wizard import YAMLWizard  # type: ignore # pylint: disable=no-name-in-module
+except ImportError:
+    from dataclass_wizard.mixins.yaml import YAMLWizard  # type: ignore # pylint: disable=no-name-in-module
+
 
 
 @dataclass(frozen=True)
