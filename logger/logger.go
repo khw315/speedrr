@@ -102,6 +102,15 @@ func SetFileHandler(filePath string, lvl Level) error {
 	return nil
 }
 
+func CloseFileHandler() {
+	globalLogger.mu.Lock()
+	defer globalLogger.mu.Unlock()
+	if globalLogger.fileWriter != nil {
+		globalLogger.fileWriter.Close()
+		globalLogger.fileWriter = nil
+	}
+}
+
 
 func logMessage(lvl Level, lvlStr string, format string, v ...interface{}) {
 	globalLogger.mu.Lock()

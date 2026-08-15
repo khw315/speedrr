@@ -1,3 +1,6 @@
 __pycache__
 *.log
+*.out
+coverage.out
 .vscode/settings.json
+coverage

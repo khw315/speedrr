@@ -195,7 +195,7 @@ func isDayInList(dayIdx int, days []int) bool {
 	return false
 }
 
-func (w *scheduleWorker) checkWindowStartingOn(startDate time.Time, now time.Time, isOvernight bool) (bool, time.Time) {
+func (w *scheduleWorker) checkWindowStartingOn(startDate, now time.Time, isOvernight bool) (bool, time.Time) {
 	if !isDayInList(getDayIdx(startDate), w.daysAsInt) {
 		return false, time.Time{}
 	}
@@ -213,7 +213,7 @@ func (w *scheduleWorker) checkWindowStartingOn(startDate time.Time, now time.Tim
 	return false, time.Time{}
 }
 
-func (w *scheduleWorker) findNextStartTime(now time.Time, today time.Time) time.Time {
+func (w *scheduleWorker) findNextStartTime(now, today time.Time) time.Time {
 	loc := today.Location()
 	for dayOffset := 0; dayOffset <= 8; dayOffset++ {
 		candidateDate := today.AddDate(0, 0, dayOffset)
@@ -275,4 +275,3 @@ func (w *scheduleWorker) run(ctx context.Context) {
 		}
 	}
 }
-

@@ -132,7 +132,7 @@ func (c *QBittorrentClient) GetActiveTorrentCount(ctx context.Context) (int, err
 
 	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
 		// Try re-login once
-		if relogErr := c.login(ctx); relogErr == nil {
+		if c.login(ctx) == nil {
 			return c.GetActiveTorrentCount(ctx)
 		}
 	}
@@ -154,13 +154,13 @@ func (c *QBittorrentClient) GetActiveTorrentCount(ctx context.Context) (int, err
 	return count, nil
 }
 
-func (c *QBittorrentClient) SetUploadSpeed(ctx context.Context, speed float64) error {
+func (c *QBittorrentClient) setSpeedLimit(ctx context.Context, speed float64, limitType, apiPath string) error {
 	var limitBytes int64
 	if math.IsInf(speed, 1) {
-		logger.Debug("<qbit|%s> Setting upload speed to unlimited", c.clientConfig.URL)
+		logger.Debug("<qbit|%s> Setting %s speed to unlimited", c.clientConfig.URL, limitType)
 		limitBytes = 0
 	} else {
-		logger.Debug("<qbit|%s> Setting upload speed to %v%s", c.clientConfig.URL, speed, c.appConfig.Units)
+		logger.Debug("<qbit|%s> Setting %s speed to %v%s", c.clientConfig.URL, limitType, speed, c.appConfig.Units)
 		converted, err := units.Convert(speed, c.appConfig.Units, "B")
 		if err != nil {
 			return err
@@ -171,7 +171,7 @@ func (c *QBittorrentClient) SetUploadSpeed(ctx context.Context, speed float64) e
 	data := url.Values{}
 	data.Set("limit", fmt.Sprintf("%d", limitBytes))
 
-	apiURL := fmt.Sprintf("%s/api/v2/transfer/setUploadLimit", c.baseURL)
+	apiURL := fmt.Sprintf("%s%s", c.baseURL, apiPath)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return err
@@ -185,43 +185,15 @@ func (c *QBittorrentClient) SetUploadSpeed(ctx context.Context, speed float64) e
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("qBittorrent returned HTTP status %d when setting upload limit", resp.StatusCode)
+		return fmt.Errorf("qBittorrent returned HTTP status %d when setting %s limit", resp.StatusCode, limitType)
 	}
 	return nil
 }
 
+func (c *QBittorrentClient) SetUploadSpeed(ctx context.Context, speed float64) error {
+	return c.setSpeedLimit(ctx, speed, "upload", "/api/v2/transfer/setUploadLimit")
+}
+
 func (c *QBittorrentClient) SetDownloadSpeed(ctx context.Context, speed float64) error {
-	var limitBytes int64
-	if math.IsInf(speed, 1) {
-		logger.Debug("<qbit|%s> Setting download speed to unlimited", c.clientConfig.URL)
-		limitBytes = 0
-	} else {
-		logger.Debug("<qbit|%s> Setting download speed to %v%s", c.clientConfig.URL, speed, c.appConfig.Units)
-		converted, err := units.Convert(speed, c.appConfig.Units, "B")
-		if err != nil {
-			return err
-		}
-		limitBytes = int64(math.Max(1, math.Round(converted)))
-	}
-
-	data := url.Values{}
-	data.Set("limit", fmt.Sprintf("%d", limitBytes))
-
-	apiURL := fmt.Sprintf("%s/api/v2/transfer/setDownloadLimit", c.baseURL)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(data.Encode()))
-	if err != nil {
-		return err
-	}
-	req.Header.Set(contentTypeHeader, formURLEncoded)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("qBittorrent returned HTTP status %d when setting download limit", resp.StatusCode)
-	}
-	return nil
+	return c.setSpeedLimit(ctx, speed, "download", "/api/v2/transfer/setDownloadLimit")
 }

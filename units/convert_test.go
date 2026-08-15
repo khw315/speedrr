@@ -29,4 +29,12 @@ func TestConvert(t *testing.T) {
 			t.Errorf("Convert(%v, %s, %s) = %v; want %v", tt.inp, tt.inpType, tt.outType, got, tt.expected)
 		}
 	}
+
+	// Error test cases
+	if _, err := Convert(10, "invalid_unit", "B"); err == nil {
+		t.Errorf("Expected error for invalid input unit, got nil")
+	}
+	if _, err := Convert(10, "Mbit", "invalid_unit"); err == nil {
+		t.Errorf("Expected error for invalid output unit, got nil")
+	}
 }

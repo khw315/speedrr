@@ -178,23 +178,23 @@ func (c *TransmissionClient) GetActiveTorrentCount(ctx context.Context) (int, er
 	return 0, nil
 }
 
-func (c *TransmissionClient) SetUploadSpeed(ctx context.Context, speed float64) error {
+func (c *TransmissionClient) setSpeedLimit(ctx context.Context, speed float64, limitType, keyEnabled, keySpeed string) error {
 	var args map[string]interface{}
 	if math.IsInf(speed, 1) {
-		logger.Debug("<trans|%s> Setting upload speed to unlimited", c.clientConfig.URL)
+		logger.Debug("<trans|%s> Setting %s speed to unlimited", c.clientConfig.URL, limitType)
 		args = map[string]interface{}{
-			"speed-limit-up-enabled": false,
+			keyEnabled: false,
 		}
 	} else {
-		logger.Debug("<trans|%s> Setting upload speed to %v%s", c.clientConfig.URL, speed, c.appConfig.Units)
+		logger.Debug("<trans|%s> Setting %s speed to %v%s", c.clientConfig.URL, limitType, speed, c.appConfig.Units)
 		converted, err := units.Convert(speed, c.appConfig.Units, "KB")
 		if err != nil {
 			return err
 		}
 		speedLimitKB := int64(math.Max(1, math.Round(converted)))
 		args = map[string]interface{}{
-			"speed-limit-up-enabled": true,
-			"speed-limit-up":         speedLimitKB,
+			keyEnabled: true,
+			keySpeed:   speedLimitKB,
 		}
 	}
 
@@ -202,26 +202,10 @@ func (c *TransmissionClient) SetUploadSpeed(ctx context.Context, speed float64) 
 	return err
 }
 
-func (c *TransmissionClient) SetDownloadSpeed(ctx context.Context, speed float64) error {
-	var args map[string]interface{}
-	if math.IsInf(speed, 1) {
-		logger.Debug("<trans|%s> Setting download speed to unlimited", c.clientConfig.URL)
-		args = map[string]interface{}{
-			"speed-limit-down-enabled": false,
-		}
-	} else {
-		logger.Debug("<trans|%s> Setting download speed to %v%s", c.clientConfig.URL, speed, c.appConfig.Units)
-		converted, err := units.Convert(speed, c.appConfig.Units, "KB")
-		if err != nil {
-			return err
-		}
-		speedLimitKB := int64(math.Max(1, math.Round(converted)))
-		args = map[string]interface{}{
-			"speed-limit-down-enabled": true,
-			"speed-limit-down":         speedLimitKB,
-		}
-	}
+func (c *TransmissionClient) SetUploadSpeed(ctx context.Context, speed float64) error {
+	return c.setSpeedLimit(ctx, speed, "upload", "speed-limit-up-enabled", "speed-limit-up")
+}
 
-	_, err := c.doRPC(ctx, "session-set", args)
-	return err
+func (c *TransmissionClient) SetDownloadSpeed(ctx context.Context, speed float64) error {
+	return c.setSpeedLimit(ctx, speed, "download", "speed-limit-down-enabled", "speed-limit-down")
 }

@@ -18,7 +18,6 @@ import (
 	"github.com/khw315/speedrr/units"
 )
 
-
 type MediaServerModule struct {
 	mu                   sync.Mutex
 	appConfig            *config.SpeedrrConfig
@@ -228,7 +227,6 @@ func (m *MediaServerModule) GetTargetUploadSpeed() interface{} {
 
 	return m.appConfig.MaxUpload
 }
-
 
 func (m *MediaServerModule) Run(ctx context.Context) {
 	for _, server := range m.servers {
@@ -466,6 +464,28 @@ func (p *PlexServer) Run(ctx context.Context) {
 
 // Tautulli Server Implementation
 
+type tautulliSession struct {
+	SessionID string      `json:"session_id"`
+	Bandwidth interface{} `json:"bandwidth"`
+	State     string      `json:"state"`
+	IPAddress string      `json:"ip_address"`
+	FullTitle string      `json:"full_title"`
+}
+
+type tautulliActivityData struct {
+	Sessions []tautulliSession `json:"sessions"`
+}
+
+type tautulliResponseData struct {
+	Result  string               `json:"result"`
+	Message string               `json:"message"`
+	Data    tautulliActivityData `json:"data"`
+}
+
+type tautulliActivityResponse struct {
+	Response tautulliResponseData `json:"response"`
+}
+
 type TautulliServer struct {
 	*BaseServer
 }
@@ -498,21 +518,7 @@ func (t *TautulliServer) GetBandwidth(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("Tautulli HTTP status %d", resp.StatusCode)
 	}
 
-	var data struct {
-		Response struct {
-			Result  string `json:"result"`
-			Message string `json:"message"`
-			Data    struct {
-				Sessions []struct {
-					SessionID string      `json:"session_id"`
-					Bandwidth interface{} `json:"bandwidth"`
-					State     string      `json:"state"`
-					IPAddress string      `json:"ip_address"`
-					FullTitle string      `json:"full_title"`
-				} `json:"sessions"`
-			} `json:"data"`
-		} `json:"response"`
-	}
+	var data tautulliActivityResponse
 
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return 0, err
@@ -553,6 +559,32 @@ func (t *TautulliServer) Run(ctx context.Context) {
 
 // Jellyfin Server Implementation
 
+type embyJellyfinMediaStream struct {
+	BitRate interface{} `json:"BitRate"`
+}
+
+type embyJellyfinNowPlayingItem struct {
+	Name         string                    `json:"Name"`
+	MediaStreams []embyJellyfinMediaStream `json:"MediaStreams"`
+}
+
+type embyJellyfinPlayState struct {
+	IsPaused   bool   `json:"IsPaused"`
+	PlayMethod string `json:"PlayMethod"`
+}
+
+type embyJellyfinTranscodingInfo struct {
+	Bitrate interface{} `json:"Bitrate"`
+}
+
+type embyJellyfinSession struct {
+	ID              string                       `json:"Id"`
+	RemoteEndPoint  string                       `json:"RemoteEndPoint"`
+	NowPlayingItem  *embyJellyfinNowPlayingItem  `json:"NowPlayingItem"`
+	PlayState       embyJellyfinPlayState        `json:"PlayState"`
+	TranscodingInfo *embyJellyfinTranscodingInfo `json:"TranscodingInfo"`
+}
+
 type JellyfinServer struct {
 	*BaseServer
 }
@@ -581,24 +613,7 @@ func (j *JellyfinServer) GetBandwidth(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("Jellyfin HTTP status %d", resp.StatusCode)
 	}
 
-	var sessions []struct {
-		ID             string `json:"Id"`
-		RemoteEndPoint string `json:"RemoteEndPoint"`
-		NowPlayingItem *struct {
-			Name         string `json:"Name"`
-			MediaStreams []struct {
-				BitRate interface{} `json:"BitRate"`
-			} `json:"MediaStreams"`
-		} `json:"NowPlayingItem"`
-		PlayState struct {
-			IsPaused   bool   `json:"IsPaused"`
-			PlayMethod string `json:"PlayMethod"`
-		} `json:"PlayState"`
-		TranscodingInfo *struct {
-			Bitrate interface{} `json:"Bitrate"`
-		} `json:"TranscodingInfo"`
-	}
-
+	var sessions []embyJellyfinSession
 	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
 		return 0, err
 	}
@@ -670,24 +685,7 @@ func (e *EmbyServer) GetBandwidth(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("Emby HTTP status %d", resp.StatusCode)
 	}
 
-	var sessions []struct {
-		ID             string `json:"Id"`
-		RemoteEndPoint string `json:"RemoteEndPoint"`
-		NowPlayingItem *struct {
-			Name         string `json:"Name"`
-			MediaStreams []struct {
-				BitRate interface{} `json:"BitRate"`
-			} `json:"MediaStreams"`
-		} `json:"NowPlayingItem"`
-		PlayState struct {
-			IsPaused   bool   `json:"IsPaused"`
-			PlayMethod string `json:"PlayMethod"`
-		} `json:"PlayState"`
-		TranscodingInfo *struct {
-			Bitrate interface{} `json:"Bitrate"`
-		} `json:"TranscodingInfo"`
-	}
-
+	var sessions []embyJellyfinSession
 	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
 		return 0, err
 	}
@@ -737,6 +735,8 @@ func parseFlexibleInt(val interface{}) int {
 	switch v := val.(type) {
 	case int:
 		return v
+	case int64:
+		return int(v)
 	case float64:
 		return int(v)
 	case string:
