@@ -178,64 +178,80 @@ func parseSpeedVal(val interface{}, maxVal float64) float64 {
 	return 0
 }
 
-func (w *scheduleWorker) calculateNextOccurrence(hour, minute int) time.Time {
-	now := time.Now()
+func getDayIdx(t time.Time) int {
+	goWd := t.Weekday()
+	if goWd == time.Sunday {
+		return 6
+	}
+	return int(goWd) - 1
+}
+
+func isDayInList(dayIdx int, days []int) bool {
+	for _, d := range days {
+		if d == dayIdx {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *scheduleWorker) evaluateScheduleState(now time.Time) (bool, time.Time) {
 	loc := now.Location()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 
-	for dayOffset := 0; dayOffset <= 7; dayOffset++ {
-		candidateDate := today.AddDate(0, 0, dayOffset)
-		// Go Weekday: Sunday=0, Monday=1, ..., Saturday=6 -> map to Mon=0 ... Sun=6
-		goWeekday := candidateDate.Weekday()
-		var idx int
-		if goWeekday == time.Sunday {
-			idx = 6
+	isOvernight := (w.startHour > w.endHour) || (w.startHour == w.endHour && w.startMinute >= w.endMinute)
+
+	// Check window starting today
+	if isDayInList(getDayIdx(today), w.daysAsInt) {
+		startToday := time.Date(today.Year(), today.Month(), today.Day(), w.startHour, w.startMinute, 0, 0, loc)
+		var endToday time.Time
+		if isOvernight {
+			endToday = time.Date(today.Year(), today.Month(), today.Day()+1, w.endHour, w.endMinute, 0, 0, loc)
 		} else {
-			idx = int(goWeekday) - 1
+			endToday = time.Date(today.Year(), today.Month(), today.Day(), w.endHour, w.endMinute, 0, 0, loc)
 		}
 
-		isDayValid := false
-		for _, d := range w.daysAsInt {
-			if d == idx {
-				isDayValid = true
-				break
-			}
+		if (now.Equal(startToday) || now.After(startToday)) && now.Before(endToday) {
+			return true, endToday
 		}
+	}
 
-		if isDayValid {
-			candidateTime := time.Date(candidateDate.Year(), candidateDate.Month(), candidateDate.Day(), hour, minute, 0, 0, loc)
-			if candidateTime.After(now) {
-				return candidateTime
+	// Check window starting yesterday if overnight
+	if isOvernight {
+		yesterday := today.AddDate(0, 0, -1)
+		if isDayInList(getDayIdx(yesterday), w.daysAsInt) {
+			startYest := time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), w.startHour, w.startMinute, 0, 0, loc)
+			endYest := time.Date(today.Year(), today.Month(), today.Day(), w.endHour, w.endMinute, 0, 0, loc)
+
+			if (now.Equal(startYest) || now.After(startYest)) && now.Before(endYest) {
+				return true, endYest
 			}
 		}
 	}
 
-	return now.Add(24 * time.Hour)
+	// Currently inactive. Find next start time
+	for dayOffset := 0; dayOffset <= 8; dayOffset++ {
+		candidateDate := today.AddDate(0, 0, dayOffset)
+		if isDayInList(getDayIdx(candidateDate), w.daysAsInt) {
+			candidateStart := time.Date(candidateDate.Year(), candidateDate.Month(), candidateDate.Day(), w.startHour, w.startMinute, 0, 0, loc)
+			if candidateStart.After(now) {
+				return false, candidateStart
+			}
+		}
+	}
+
+	return false, now.Add(1 * time.Hour)
 }
 
 func (w *scheduleWorker) run(ctx context.Context) {
 	for {
-		nextStart := w.calculateNextOccurrence(w.startHour, w.startMinute)
-		nextEnd := w.calculateNextOccurrence(w.endHour, w.endMinute)
+		now := time.Now()
+		isActive, nextTransition := w.evaluateScheduleState(now)
 
-		logger.Debug("<ScheduleThread> Next start occurrence: %v, Next end occurrence: %v", nextStart, nextEnd)
-
-		if nextStart.After(nextEnd) {
-			// Currently inside scheduled window
+		if isActive {
 			w.module.SetReduction(w.index, w.uploadReduceBy, w.downloadReduceBy)
-			sleepDuration := time.Until(nextEnd)
-			logger.Debug("<ScheduleThread> start>end, Sleeping for %v", sleepDuration)
-
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(sleepDuration):
-			}
-		} else if nextStart.Before(nextEnd) {
-			// Currently outside scheduled window
-			w.module.RemoveReduction(w.index)
-			sleepDuration := time.Until(nextStart)
-			logger.Debug("<ScheduleThread> start<end, Sleeping for %v", sleepDuration)
+			sleepDuration := time.Until(nextTransition)
+			logger.Debug("<ScheduleThread> Schedule active until %v, Sleeping for %v", nextTransition, sleepDuration)
 
 			select {
 			case <-ctx.Done():
@@ -243,12 +259,16 @@ func (w *scheduleWorker) run(ctx context.Context) {
 			case <-time.After(sleepDuration):
 			}
 		} else {
-			logger.Warning("<ScheduleThread> start time and end time are equal, sleeping 1 minute")
+			w.module.RemoveReduction(w.index)
+			sleepDuration := time.Until(nextTransition)
+			logger.Debug("<ScheduleThread> Schedule inactive until next start at %v, Sleeping for %v", nextTransition, sleepDuration)
+
 			select {
 			case <-ctx.Done():
 				return
-			case <-time.After(1 * time.Minute):
+			case <-time.After(sleepDuration):
 			}
 		}
 	}
 }
+

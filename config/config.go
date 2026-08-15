@@ -33,27 +33,37 @@ type StreamBasedSpeedsConfig struct {
 
 // UnmarshalYAML custom unmarshaler to handle integer keys in speeds map
 func (s *StreamBasedSpeedsConfig) UnmarshalYAML(value *yaml.Node) error {
-	type rawStreamConfig struct {
-		Enabled bool                   `yaml:"enabled"`
-		Speeds  map[string]interface{} `yaml:"speeds"`
-		Default interface{}            `yaml:"default"`
+	var raw struct {
+		Enabled bool        `yaml:"enabled"`
+		Speeds  yaml.Node   `yaml:"speeds"`
+		Default interface{} `yaml:"default"`
 	}
-	var raw rawStreamConfig
 	if err := value.Decode(&raw); err != nil {
 		return err
 	}
 	s.Enabled = raw.Enabled
 	s.Default = raw.Default
 	s.Speeds = make(map[int]interface{})
-	for k, v := range raw.Speeds {
-		intKey, err := strconv.Atoi(k)
-		if err != nil {
-			return fmt.Errorf("invalid stream count key in speeds: %s", k)
+
+	if raw.Speeds.Kind == yaml.MappingNode {
+		for i := 0; i < len(raw.Speeds.Content); i += 2 {
+			keyNode := raw.Speeds.Content[i]
+			valNode := raw.Speeds.Content[i+1]
+
+			intKey, err := strconv.Atoi(keyNode.Value)
+			if err != nil {
+				return fmt.Errorf("invalid stream count key in speeds: %s", keyNode.Value)
+			}
+			var val interface{}
+			if err := valNode.Decode(&val); err != nil {
+				return err
+			}
+			s.Speeds[intKey] = val
 		}
-		s.Speeds[intKey] = v
 	}
 	return nil
 }
+
 
 type MediaServerConfig struct {
 	Type                string                   `yaml:"type"`
