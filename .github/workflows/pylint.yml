@@ -23,8 +23,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install --only-binary :all: pylint -r requirements.txt
+          python -m pip install pip==25.0.1
+          pip install --only-binary :all: pylint==3.3.4 dataclass_wizard==1.0.0 PyYAML==6.0.3 qbittorrent-api==2026.8.0 transmission-rpc==7.0.12 httpx==0.28.1 colorama==0.4.6
 
       - name: Analysing the code with pylint
         run: |

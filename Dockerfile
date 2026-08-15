@@ -11,7 +11,14 @@ COPY clients /home/clients
 COPY helpers /home/helpers
 COPY modules /home/modules
 
-RUN pip install --no-cache-dir --only-binary :all: -r requirements.txt \
+RUN pip install --no-cache-dir --only-binary :all: \
+    colorama==0.4.6 \
+    dataclass_wizard==1.0.0 \
+    httpx==0.28.1 \
+    pip==25.0.1 \
+    pyyaml==6.0.3 \
+    qbittorrent-api==2026.8.0 \
+    transmission-rpc==7.0.12 \
     && addgroup -S speedrr \
     && adduser -S speedrr -G speedrr \
     && chown -R speedrr:speedrr /home
