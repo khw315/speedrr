@@ -11,7 +11,7 @@ COPY clients /home/clients
 COPY helpers /home/helpers
 COPY modules /home/modules
 
-RUN pip install --no-cache-dir --require-hashes --only-binary :all: -r requirements.txt \
+RUN pip install --no-cache-dir --only-binary :all: -r requirements.txt \
     && addgroup -S speedrr \
     && adduser -S speedrr -G speedrr \
     && chown -R speedrr:speedrr /home
