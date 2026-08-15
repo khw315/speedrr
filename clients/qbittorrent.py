@@ -1,70 +1,86 @@
-import qbittorrentapi
+"""qBittorrent client integration."""
+
 from typing import Union
+import qbittorrentapi
 
 from helpers.config import SpeedrrConfig, ClientConfig
 from helpers.log_loader import logger
 from helpers.bit_convert import bit_conv
 
 
+class qBittorrentClient:  # pylint: disable=invalid-name
+    """qBittorrent client wrapper."""
 
-class qBittorrentClient:
     def __init__(self, config: SpeedrrConfig, config_client: ClientConfig) -> None:
         self._client = qbittorrentapi.Client(
-            host = config_client.url,
-            username = config_client.username,
-            password = config_client.password,
-            FORCE_SCHEME_FROM_HOST = True,
-            VERIFY_WEBUI_CERTIFICATE = config_client.https_verify
+            host=config_client.url,
+            username=config_client.username,
+            password=config_client.password,
+            FORCE_SCHEME_FROM_HOST=True,
+            VERIFY_WEBUI_CERTIFICATE=config_client.https_verify
         )
         self._client_config = config_client
         self._config = config
 
-        logger.debug(f"<qbit|{self._client_config.url}> Connecting to qBittorrent at {config_client.url}")
+        logger.debug(
+            "<qbit|%s> Connecting to qBittorrent at %s",
+            self._client_config.url,
+            config_client.url
+        )
 
         try:
             self._client.auth_log_in()
-        
-        except qbittorrentapi.LoginFailed:
-            raise Exception(f"<qbit|{self._client_config.url}> Failed to login to qBittorrent, check your credentials")
-        
-        except qbittorrentapi.Forbidden403Error:
-            raise Exception(f"<qbit|{self._client_config.url}> Failed to login to qBittorrent, temporarily banned, try again later")
-        
-        logger.debug(f"<qbit|{self._client_config.url}> Connected to qBittorrent")
+        except qbittorrentapi.LoginFailed as err:
+            raise RuntimeError(
+                f"<qbit|{self._client_config.url}> Failed to login to qBittorrent, "
+                "check your credentials"
+            ) from err
+        except qbittorrentapi.Forbidden403Error as err:
+            raise RuntimeError(
+                f"<qbit|{self._client_config.url}> Failed to login to qBittorrent, "
+                "temporarily banned, try again later"
+            ) from err
 
+        logger.debug("<qbit|%s> Connected to qBittorrent", self._client_config.url)
+
+    @property
+    def client_config(self) -> ClientConfig:
+        """Return client configuration."""
+        return self._client_config
 
     def get_active_torrent_count(self) -> int:
-        "Get the number of torrents that are currently downloading or uploading."
-
-        logger.debug(f"<qbit|{self._client_config.url}> Getting active torrent count")
+        """Get the number of torrents that are currently downloading or uploading."""
+        logger.debug("<qbit|%s> Getting active torrent count", self._client_config.url)
 
         return sum(
             1 for torrent in self._client.torrents_info()
             if torrent.state_enum.is_downloading or torrent.state_enum.is_uploading
         )
-    
 
     def set_upload_speed(self, speed: Union[int, float]) -> None:
-        "Set the upload speed limit for the client, in config units."
-        
+        """Set the upload speed limit for the client, in config units."""
         if speed == float('inf'):
-            logger.debug(f"<qbit|{self._client_config.url}> Setting upload speed to unlimited")
+            logger.debug("<qbit|%s> Setting upload speed to unlimited", self._client_config.url)
             self._client.transfer_set_upload_limit(0)
         else:
-            logger.debug(f"<qbit|{self._client_config.url}> Setting upload speed to {speed}{self._config.units}")
+            logger.debug(
+                "<qbit|%s> Setting upload speed to %s%s",
+                self._client_config.url, speed, self._config.units
+            )
             self._client.transfer_set_upload_limit(
                 max(1, int(bit_conv(speed, self._config.units, 'B')))
             )
 
-
     def set_download_speed(self, speed: Union[int, float]) -> None:
-        "Set the download speed limit for the client, in config units."
-        
+        """Set the download speed limit for the client, in config units."""
         if speed == float('inf'):
-            logger.debug(f"<qbit|{self._client_config.url}> Setting download speed to unlimited")
+            logger.debug("<qbit|%s> Setting download speed to unlimited", self._client_config.url)
             self._client.transfer_set_download_limit(0)
         else:
-            logger.debug(f"<qbit|{self._client_config.url}> Setting dowload speed to {speed}{self._config.units}")
+            logger.debug(
+                "<qbit|%s> Setting dowload speed to %s%s",
+                self._client_config.url, speed, self._config.units
+            )
             self._client.transfer_set_download_limit(
                 max(1, int(bit_conv(speed, self._config.units, 'B')))
             )
