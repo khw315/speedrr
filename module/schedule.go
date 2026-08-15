@@ -2,7 +2,6 @@ package module
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"strconv"
 	"strings"

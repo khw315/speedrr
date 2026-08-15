@@ -8,7 +8,6 @@ import (
 	"math"
 	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +17,7 @@ import (
 	"github.com/khw315/speedrr/logger"
 	"github.com/khw315/speedrr/units"
 )
+
 
 type MediaServerModule struct {
 	mu                   sync.Mutex

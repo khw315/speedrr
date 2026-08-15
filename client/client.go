@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/khw315/speedrr"
 	"github.com/khw315/speedrr/config"
 )
 
