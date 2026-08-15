@@ -21,14 +21,14 @@ LABEL org.opencontainers.image.description="Dynamically manage speeds on torrent
 
 RUN apk add --no-cache ca-certificates tzdata \
     && addgroup -S speedrr \
-    && adduser -S speedrr -G speedrr
+    && adduser -S speedrr -G speedrr -h /home/speedrr
 
-WORKDIR /home
+WORKDIR /app
 
-COPY --from=builder /app/speedrr /home/speedrr
+COPY --from=builder /app/speedrr /usr/local/bin/speedrr
 
-RUN chown -R speedrr:speedrr /home
+RUN chown -R speedrr:speedrr /app /home/speedrr
 
 USER speedrr
 
-CMD ["/home/speedrr"]
+CMD ["speedrr"]
