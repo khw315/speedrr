@@ -189,6 +189,28 @@ func (m *MediaServerModule) GetStreamCount() int {
 	return total
 }
 
+func resolveSpeedForServer(speedsConfig *config.StreamBasedSpeedsConfig, totalStreams int, maxUpload float64) interface{} {
+	if val, ok := speedsConfig.Speeds[totalStreams]; ok {
+		return val
+	}
+
+	applicable := -1
+	for countKey := range speedsConfig.Speeds {
+		if countKey <= totalStreams && countKey > applicable {
+			applicable = countKey
+		}
+	}
+	if applicable != -1 {
+		return speedsConfig.Speeds[applicable]
+	}
+
+	if speedsConfig.Default != nil {
+		return speedsConfig.Default
+	}
+
+	return maxUpload
+}
+
 func (m *MediaServerModule) GetTargetUploadSpeed() interface{} {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -200,31 +222,13 @@ func (m *MediaServerModule) GetTargetUploadSpeed() interface{} {
 
 	for _, sCfg := range m.serverConfigs {
 		if sCfg.StreamBasedSpeeds != nil && sCfg.StreamBasedSpeeds.Enabled {
-			speedsConfig := sCfg.StreamBasedSpeeds
-			if val, ok := speedsConfig.Speeds[totalStreams]; ok {
-				return val
-			}
-
-			applicable := -1
-			for countKey := range speedsConfig.Speeds {
-				if countKey <= totalStreams && countKey > applicable {
-					applicable = countKey
-				}
-			}
-			if applicable != -1 {
-				return speedsConfig.Speeds[applicable]
-			}
-
-			if speedsConfig.Default != nil {
-				return speedsConfig.Default
-			}
-
-			return m.appConfig.MaxUpload
+			return resolveSpeedForServer(sCfg.StreamBasedSpeeds, totalStreams, m.appConfig.MaxUpload)
 		}
 	}
 
 	return m.appConfig.MaxUpload
 }
+
 
 func (m *MediaServerModule) Run(ctx context.Context) {
 	for _, server := range m.servers {
