@@ -195,52 +195,56 @@ func isDayInList(dayIdx int, days []int) bool {
 	return false
 }
 
-func (w *scheduleWorker) evaluateScheduleState(now time.Time) (bool, time.Time) {
-	loc := now.Location()
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
-
-	isOvernight := (w.startHour > w.endHour) || (w.startHour == w.endHour && w.startMinute >= w.endMinute)
-
-	// Check window starting today
-	if isDayInList(getDayIdx(today), w.daysAsInt) {
-		startToday := time.Date(today.Year(), today.Month(), today.Day(), w.startHour, w.startMinute, 0, 0, loc)
-		var endToday time.Time
-		if isOvernight {
-			endToday = time.Date(today.Year(), today.Month(), today.Day()+1, w.endHour, w.endMinute, 0, 0, loc)
-		} else {
-			endToday = time.Date(today.Year(), today.Month(), today.Day(), w.endHour, w.endMinute, 0, 0, loc)
-		}
-
-		if (now.Equal(startToday) || now.After(startToday)) && now.Before(endToday) {
-			return true, endToday
-		}
+func (w *scheduleWorker) checkWindowStartingOn(startDate time.Time, now time.Time, isOvernight bool) (bool, time.Time) {
+	if !isDayInList(getDayIdx(startDate), w.daysAsInt) {
+		return false, time.Time{}
 	}
-
-	// Check window starting yesterday if overnight
+	loc := startDate.Location()
+	start := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), w.startHour, w.startMinute, 0, 0, loc)
+	daysToAdd := 0
 	if isOvernight {
-		yesterday := today.AddDate(0, 0, -1)
-		if isDayInList(getDayIdx(yesterday), w.daysAsInt) {
-			startYest := time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), w.startHour, w.startMinute, 0, 0, loc)
-			endYest := time.Date(today.Year(), today.Month(), today.Day(), w.endHour, w.endMinute, 0, 0, loc)
-
-			if (now.Equal(startYest) || now.After(startYest)) && now.Before(endYest) {
-				return true, endYest
-			}
-		}
+		daysToAdd = 1
 	}
+	end := time.Date(startDate.Year(), startDate.Month(), startDate.Day()+daysToAdd, w.endHour, w.endMinute, 0, 0, loc)
 
-	// Currently inactive. Find next start time
+	if !now.Before(start) && now.Before(end) {
+		return true, end
+	}
+	return false, time.Time{}
+}
+
+func (w *scheduleWorker) findNextStartTime(now time.Time, today time.Time) time.Time {
+	loc := today.Location()
 	for dayOffset := 0; dayOffset <= 8; dayOffset++ {
 		candidateDate := today.AddDate(0, 0, dayOffset)
 		if isDayInList(getDayIdx(candidateDate), w.daysAsInt) {
 			candidateStart := time.Date(candidateDate.Year(), candidateDate.Month(), candidateDate.Day(), w.startHour, w.startMinute, 0, 0, loc)
 			if candidateStart.After(now) {
-				return false, candidateStart
+				return candidateStart
 			}
 		}
 	}
+	return now.Add(1 * time.Hour)
+}
 
-	return false, now.Add(1 * time.Hour)
+func (w *scheduleWorker) evaluateScheduleState(now time.Time) (bool, time.Time) {
+	loc := now.Location()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+	isOvernight := (w.startHour > w.endHour) || (w.startHour == w.endHour && w.startMinute >= w.endMinute)
+
+	if active, endTime := w.checkWindowStartingOn(today, now, isOvernight); active {
+		return true, endTime
+	}
+
+	if isOvernight {
+		yesterday := today.AddDate(0, 0, -1)
+		if active, endTime := w.checkWindowStartingOn(yesterday, now, isOvernight); active {
+			return true, endTime
+		}
+	}
+
+	nextStart := w.findNextStartTime(now, today)
+	return false, nextStart
 }
 
 func (w *scheduleWorker) run(ctx context.Context) {

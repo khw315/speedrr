@@ -18,6 +18,11 @@ import (
 	"github.com/khw315/speedrr/units"
 )
 
+const (
+	contentTypeHeader = "Content-Type"
+	formURLEncoded    = "application/x-www-form-urlencoded"
+)
+
 type QBittorrentClient struct {
 	mu           sync.Mutex
 	appConfig    *config.SpeedrrConfig
@@ -80,7 +85,7 @@ func (c *QBittorrentClient) login(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("<qbit|%s> failed to create login request: %w", c.clientConfig.URL, err)
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set(contentTypeHeader, formURLEncoded)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -171,7 +176,7 @@ func (c *QBittorrentClient) SetUploadSpeed(ctx context.Context, speed float64) e
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set(contentTypeHeader, formURLEncoded)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -207,7 +212,7 @@ func (c *QBittorrentClient) SetDownloadSpeed(ctx context.Context, speed float64)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set(contentTypeHeader, formURLEncoded)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

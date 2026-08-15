@@ -83,6 +83,17 @@ func calculateStreamModeUpload(baseUpload float64, scheduleUploadReductions []fl
 	return math.Max(minUpload, referenceUpload-totalScheduleRed)
 }
 
+func aggregateReductions(reductions []float64, minVal, maxVal float64) float64 {
+	sum := 0.0
+	for _, r := range reductions {
+		if math.IsInf(r, 1) {
+			return math.Inf(1)
+		}
+		sum += r
+	}
+	return math.Max(minVal, maxVal-sum)
+}
+
 func calculateTargetSpeeds(msModule *module.MediaServerModule, schedModule *module.ScheduleModule, cfg *config.SpeedrrConfig) (float64, float64) {
 	var msUp, msDown float64
 	var schedUp, schedDown float64
@@ -94,12 +105,7 @@ func calculateTargetSpeeds(msModule *module.MediaServerModule, schedModule *modu
 		schedUp, schedDown = schedModule.GetReductionValue()
 	}
 
-	uploadReductions := []float64{msUp, schedUp}
-	downloadReductions := []float64{msDown, schedDown}
-
-	var newUpload, newDownload float64
-
-	// Check if stream-based mode active (indicated by msUp == -Inf)
+	var newUpload float64
 	if math.IsInf(msUp, -1) {
 		baseUpload := calculateBaseUploadSpeed(msModule, cfg)
 		var scheduleReductions []float64
@@ -108,39 +114,10 @@ func calculateTargetSpeeds(msModule *module.MediaServerModule, schedModule *modu
 		}
 		newUpload = calculateStreamModeUpload(baseUpload, scheduleReductions, cfg.MinUpload, cfg.MaxUpload)
 	} else {
-		hasInfUp := false
-		sumUp := 0.0
-		for _, r := range uploadReductions {
-			if math.IsInf(r, 1) {
-				hasInfUp = true
-				break
-			}
-			sumUp += r
-		}
-
-		if hasInfUp {
-			newUpload = math.Inf(1)
-		} else {
-			newUpload = math.Max(cfg.MinUpload, cfg.MaxUpload-sumUp)
-		}
+		newUpload = aggregateReductions([]float64{msUp, schedUp}, cfg.MinUpload, cfg.MaxUpload)
 	}
 
-	hasInfDown := false
-	sumDown := 0.0
-	for _, r := range downloadReductions {
-		if math.IsInf(r, 1) {
-			hasInfDown = true
-			break
-		}
-		sumDown += r
-	}
-
-	if hasInfDown {
-		newDownload = math.Inf(1)
-	} else {
-		newDownload = math.Max(cfg.MinDownload, cfg.MaxDownload-sumDown)
-	}
-
+	newDownload := aggregateReductions([]float64{msDown, schedDown}, cfg.MinDownload, cfg.MaxDownload)
 	return newUpload, newDownload
 }
 
@@ -158,9 +135,7 @@ func logCalculatedSpeeds(uploadSpeed, downloadSpeed float64, units string) {
 	}
 }
 
-func applySpeedsToClients(ctx context.Context, clients []client.TorrentClient, cfg *config.SpeedrrConfig, newUpload, newDownload float64, sumUploadShares, sumDownloadShares int) {
-	logger.Info("Getting active torrent counts")
-
+func fetchActiveTorrentCounts(ctx context.Context, clients []client.TorrentClient) (map[client.TorrentClient]int, int) {
 	type clientCount struct {
 		c     client.TorrentClient
 		count int
@@ -194,35 +169,36 @@ func applySpeedsToClients(ctx context.Context, clients []client.TorrentClient, c
 		}
 	}
 
+	return clientActiveDict, sumActiveTorrents
+}
+
+func calculateEffectiveClientSpeed(speed float64, shares, totalShares, activeCount, totalActive int, isManualShare bool) float64 {
+	if math.IsInf(speed, 1) {
+		return math.Inf(1)
+	}
+	if isManualShare {
+		if totalShares > 0 {
+			return (float64(shares) / float64(totalShares)) * speed
+		}
+		return speed
+	}
+	if activeCount > 0 && totalActive > 0 {
+		return (float64(activeCount) / float64(totalActive)) * speed
+	}
+	return speed
+}
+
+func applySpeedsToClients(ctx context.Context, clients []client.TorrentClient, cfg *config.SpeedrrConfig, newUpload, newDownload float64, sumUploadShares, sumDownloadShares int) {
+	logger.Info("Getting active torrent counts")
+
+	clientActiveDict, sumActiveTorrents := fetchActiveTorrentCounts(ctx, clients)
+
 	for _, c := range clients {
 		cConfig := c.Config()
 		activeCount := clientActiveDict[c]
 
-		var effUpload float64
-		if math.IsInf(newUpload, 1) {
-			effUpload = math.Inf(1)
-		} else if cfg.ManualSpeedAlgorithmShare {
-			effUpload = (float64(cConfig.UploadShares) / float64(sumUploadShares)) * newUpload
-		} else {
-			if activeCount > 0 && sumActiveTorrents > 0 {
-				effUpload = (float64(activeCount) / float64(sumActiveTorrents)) * newUpload
-			} else {
-				effUpload = newUpload
-			}
-		}
-
-		var effDownload float64
-		if math.IsInf(newDownload, 1) {
-			effDownload = math.Inf(1)
-		} else if cfg.ManualSpeedAlgorithmShare {
-			effDownload = (float64(cConfig.DownloadShares) / float64(sumDownloadShares)) * newDownload
-		} else {
-			if activeCount > 0 && sumActiveTorrents > 0 {
-				effDownload = (float64(activeCount) / float64(sumActiveTorrents)) * newDownload
-			} else {
-				effDownload = newDownload
-			}
-		}
+		effUpload := calculateEffectiveClientSpeed(newUpload, cConfig.UploadShares, sumUploadShares, activeCount, sumActiveTorrents, cfg.ManualSpeedAlgorithmShare)
+		effDownload := calculateEffectiveClientSpeed(newDownload, cConfig.DownloadShares, sumDownloadShares, activeCount, sumActiveTorrents, cfg.ManualSpeedAlgorithmShare)
 
 		updateClientSpeed(ctx, c, effUpload, effDownload, cfg.Units)
 	}
