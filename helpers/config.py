@@ -28,6 +28,13 @@ class IgnoreStreamConfig(YAMLWizard):
     ip_networks: Optional[tuple[str, ...]]
     paused_after: int
 
+    def __hash__(self) -> int:
+        return hash((
+            self.local,
+            tuple(self.ip_networks) if self.ip_networks is not None else None,
+            self.paused_after,
+        ))
+
 
 @dataclass(frozen=True)
 class StreamBasedSpeedsConfig(YAMLWizard):
@@ -35,6 +42,13 @@ class StreamBasedSpeedsConfig(YAMLWizard):
     enabled: bool
     speeds: dict[int, Union[int, float, str]]
     default: Optional[Union[int, float, str]] = None
+
+    def __hash__(self) -> int:
+        return hash((
+            self.enabled,
+            tuple(sorted(self.speeds.items())) if self.speeds else (),
+            self.default,
+        ))
 
 
 @dataclass(frozen=True)
@@ -60,12 +74,27 @@ class ScheduleConfig(YAMLWizard):
     upload: Union[int, str]
     download: Union[int, str]
 
+    def __hash__(self) -> int:
+        return hash((
+            self.start,
+            self.end,
+            tuple(self.days) if self.days is not None else None,
+            self.upload,
+            self.download,
+        ))
+
 
 @dataclass(frozen=True)
 class ModulesConfig(YAMLWizard):
     """Configuration model for optional modules."""
     media_servers: Optional[List[MediaServerConfig]]
     schedule: Optional[List[ScheduleConfig]]
+
+    def __hash__(self) -> int:
+        return hash((
+            tuple(self.media_servers) if self.media_servers is not None else None,
+            tuple(self.schedule) if self.schedule is not None else None,
+        ))
 
 
 @dataclass(frozen=True)
@@ -108,6 +137,19 @@ class SpeedrrConfig(YAMLWizard):  # pylint: disable=too-many-instance-attributes
     clients: List[ClientConfig]
     modules: ModulesConfig
     manual_speed_algorithm_share: Optional[bool] = False
+
+    def __hash__(self) -> int:
+        return hash((
+            self.logs_path,
+            self.units,
+            self.min_upload,
+            self.max_upload,
+            self.min_download,
+            self.max_download,
+            tuple(self.clients) if self.clients is not None else None,
+            self.modules,
+            self.manual_speed_algorithm_share,
+        ))
 
 
 def load_config(config_file: str) -> SpeedrrConfig:
