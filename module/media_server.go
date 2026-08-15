@@ -232,42 +232,77 @@ func (m *MediaServerModule) Run(ctx context.Context) {
 	}
 }
 
+const logGettingBandwidth = "%s Getting bandwidth"
+
 // Stream IP & Paused Helpers
+
+func isPrivateIP(ipStr string) bool {
+	if strings.ToLower(ipStr) == "lan" {
+		return true
+	}
+	host, _, err := net.SplitHostPort(ipStr)
+	if err != nil {
+		host = ipStr
+	}
+	parsedIP := net.ParseIP(host)
+	return parsedIP != nil && (parsedIP.IsPrivate() || parsedIP.IsLoopback() || parsedIP.IsLinkLocalUnicast())
+}
+
+func matchesIPNetwork(ipStr string, cidrNetworks []string) bool {
+	host, _, err := net.SplitHostPort(ipStr)
+	if err != nil {
+		host = ipStr
+	}
+	parsedIP := net.ParseIP(host)
+	if parsedIP == nil {
+		return false
+	}
+	for _, cidr := range cidrNetworks {
+		_, ipNet, err := net.ParseCIDR(cidr)
+		if err == nil && ipNet.Contains(parsedIP) {
+			return true
+		}
+	}
+	return false
+}
 
 func (b *BaseServer) isLocalStream(ipStr string) bool {
 	if ipStr == "" {
 		return false
 	}
-	if b.serverConfig.IgnoreStreams.Local {
-		if strings.ToLower(ipStr) == "lan" {
-			return true
-		}
-		host, _, err := net.SplitHostPort(ipStr)
-		if err != nil {
-			host = ipStr
-		}
-		parsedIP := net.ParseIP(host)
-		if parsedIP != nil && (parsedIP.IsPrivate() || parsedIP.IsLoopback() || parsedIP.IsLinkLocalUnicast()) {
-			return true
-		}
+	if b.serverConfig.IgnoreStreams.Local && isPrivateIP(ipStr) {
+		return true
+	}
+	if len(b.serverConfig.IgnoreStreams.IPNetworks) > 0 && matchesIPNetwork(ipStr, b.serverConfig.IgnoreStreams.IPNetworks) {
+		return true
+	}
+	return false
+}
+
+func (b *BaseServer) isSessionPausedIgnored(paused bool, sessionID string, title string) bool {
+	pausedAfter := b.serverConfig.IgnoreStreams.PausedAfter
+	if pausedAfter == -1 {
+		return false
 	}
 
-	if len(b.serverConfig.IgnoreStreams.IPNetworks) > 0 {
-		host, _, err := net.SplitHostPort(ipStr)
-		if err != nil {
-			host = ipStr
+	if paused {
+		t, noted := b.pausedSince[sessionID]
+		if !noted {
+			b.pausedSince[sessionID] = time.Now()
+			logger.Debug("%s %s:%s is paused, noted time", b.loggerPrefix, title, sessionID)
+			return false
 		}
-		parsedIP := net.ParseIP(host)
-		if parsedIP != nil {
-			for _, cidr := range b.serverConfig.IgnoreStreams.IPNetworks {
-				_, ipNet, err := net.ParseCIDR(cidr)
-				if err == nil && ipNet.Contains(parsedIP) {
-					return true
-				}
-			}
+		if int(time.Since(t).Seconds()) > pausedAfter {
+			logger.Debug("%s Removing %s:%s from count, paused for too long", b.loggerPrefix, title, sessionID)
+			return true
 		}
+		return false
 	}
 
+	if _, noted := b.pausedSince[sessionID]; noted {
+		logger.Debug("%s %s:%s is no longer paused, removing from paused dict", b.loggerPrefix, title, sessionID)
+		delete(b.pausedSince, sessionID)
+	}
 	return false
 }
 
@@ -275,21 +310,8 @@ func (b *BaseServer) processSession(bandwidth int, paused bool, ipAddress string
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	pausedAfter := b.serverConfig.IgnoreStreams.PausedAfter
-	if paused && pausedAfter != -1 {
-		t, noted := b.pausedSince[sessionID]
-		if !noted {
-			b.pausedSince[sessionID] = time.Now()
-			logger.Debug("%s %s:%s is paused, noted time", b.loggerPrefix, title, sessionID)
-		} else if int(time.Since(t).Seconds()) > pausedAfter {
-			logger.Debug("%s Removing %s:%s from count, paused for too long", b.loggerPrefix, title, sessionID)
-			return 0
-		}
-	} else if pausedAfter != -1 {
-		if _, noted := b.pausedSince[sessionID]; noted {
-			logger.Debug("%s %s:%s is no longer paused, removing from paused dict", b.loggerPrefix, title, sessionID)
-			delete(b.pausedSince, sessionID)
-		}
+	if b.isSessionPausedIgnored(paused, sessionID, title) {
+		return 0
 	}
 
 	if b.isLocalStream(ipAddress) {
@@ -358,7 +380,7 @@ func (p *PlexServer) ServerConfig() config.MediaServerConfig {
 }
 
 func (p *PlexServer) GetBandwidth(ctx context.Context) (int, error) {
-	logger.Debug("%s Getting bandwidth", p.loggerPrefix)
+	logger.Debug(logGettingBandwidth, p.loggerPrefix)
 
 	reqURL := fmt.Sprintf("%s/status/sessions", p.baseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
@@ -449,7 +471,7 @@ func (t *TautulliServer) ServerConfig() config.MediaServerConfig {
 }
 
 func (t *TautulliServer) GetBandwidth(ctx context.Context) (int, error) {
-	logger.Debug("%s Getting bandwidth", t.loggerPrefix)
+	logger.Debug(logGettingBandwidth, t.loggerPrefix)
 
 	reqURL := fmt.Sprintf("%s/api/v2", t.baseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
@@ -536,7 +558,7 @@ func (j *JellyfinServer) ServerConfig() config.MediaServerConfig {
 }
 
 func (j *JellyfinServer) GetBandwidth(ctx context.Context) (int, error) {
-	logger.Debug("%s Getting bandwidth", j.loggerPrefix)
+	logger.Debug(logGettingBandwidth, j.loggerPrefix)
 
 	reqURL := fmt.Sprintf("%s/Sessions", j.baseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
@@ -626,7 +648,7 @@ func (e *EmbyServer) ServerConfig() config.MediaServerConfig {
 }
 
 func (e *EmbyServer) GetBandwidth(ctx context.Context) (int, error) {
-	logger.Debug("%s Getting bandwidth", e.loggerPrefix)
+	logger.Debug(logGettingBandwidth, e.loggerPrefix)
 
 	reqURL := fmt.Sprintf("%s/Sessions?api_key=%s", e.baseURL, e.serverConfig.APIKey)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)

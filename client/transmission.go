@@ -83,6 +83,8 @@ func (c *TransmissionClient) Config() config.ClientConfig {
 	return c.clientConfig
 }
 
+const headerTransmissionSessionID = "X-Transmission-Session-Id"
+
 func (c *TransmissionClient) doRPC(ctx context.Context, method string, args interface{}) (*rpcResponse, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -105,7 +107,7 @@ func (c *TransmissionClient) doRPC(ctx context.Context, method string, args inte
 		req.SetBasicAuth(c.clientConfig.Username, c.clientConfig.Password)
 	}
 	if c.sessionID != "" {
-		req.Header.Set("X-Transmission-Session-Id", c.sessionID)
+		req.Header.Set(headerTransmissionSessionID, c.sessionID)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -116,7 +118,7 @@ func (c *TransmissionClient) doRPC(ctx context.Context, method string, args inte
 
 	// Handle Transmission 409 Conflict (CSRF Session ID requirement)
 	if resp.StatusCode == http.StatusConflict {
-		newSessionID := resp.Header.Get("X-Transmission-Session-Id")
+		newSessionID := resp.Header.Get(headerTransmissionSessionID)
 		if newSessionID != "" {
 			c.sessionID = newSessionID
 			// Retry request once with new session ID
@@ -128,7 +130,8 @@ func (c *TransmissionClient) doRPC(ctx context.Context, method string, args inte
 			if c.clientConfig.Username != "" || c.clientConfig.Password != "" {
 				reqRetry.SetBasicAuth(c.clientConfig.Username, c.clientConfig.Password)
 			}
-			reqRetry.Header.Set("X-Transmission-Session-Id", c.sessionID)
+			reqRetry.Header.Set(headerTransmissionSessionID, c.sessionID)
+
 
 			respRetry, err := c.httpClient.Do(reqRetry)
 			if err != nil {
