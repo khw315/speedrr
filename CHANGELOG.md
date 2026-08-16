@@ -43,5 +43,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🎨 Documentation & Design
 
-- Created standalone editorial SVG architecture and data flow diagram in `sidecars/youtube-monitor/docs/architecture.html`.
+- Created comprehensive Markdown architecture and data flow design specification in `sidecars/youtube-monitor/docs/architecture.md`.
 - Added comprehensive English user guide and configuration reference in `sidecars/youtube-monitor/README.md`.

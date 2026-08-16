@@ -30,7 +30,7 @@ speedrr/
         ├── main.go                         # Packet capture engine, SNI parser, state & webhook
         ├── main_test.go                    # Unit tests for domain matching, BPF filter, & SNI
         ├── docs/
-        │   └── architecture.html           # Standalone editorial SVG architecture diagram
+        │   └── architecture.md             # Standalone architecture, data flow, and state diagram
         └── README.md
 ```
 
