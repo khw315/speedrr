@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -27,6 +28,56 @@ func TestIsYouTubeTraffic(t *testing.T) {
 				t.Errorf("isYouTubeTraffic(%q) = %v, expected %v", tt.domain, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestBuildBPFFilter(t *testing.T) {
+	tests := []struct {
+		name     string
+		targets  []string
+		expected string
+	}{
+		{
+			name:     "Empty targets",
+			targets:  []string{},
+			expected: "(tcp or udp) and (port 53 or port 443)",
+		},
+		{
+			name:     "Single Host IP",
+			targets:  []string{"192.168.1.50"},
+			expected: "(tcp or udp) and (port 53 or port 443) and (host 192.168.1.50)",
+		},
+		{
+			name:     "Multiple Hosts and Subnets",
+			targets:  []string{"192.168.1.50", "10.0.0.0/24", "172.16.0.0/16"},
+			expected: "(tcp or udp) and (port 53 or port 443) and (host 192.168.1.50 or net 10.0.0.0/24 or net 172.16.0.0/16)",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildBPFFilter(tt.targets)
+			if got != tt.expected {
+				t.Errorf("buildBPFFilter(%v) = %q, expected %q", tt.targets, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestConfigGetAllTargets(t *testing.T) {
+	cfg := &Config{
+		TargetIPs:     []string{"192.168.1.50"},
+		TargetSubnets: []string{"192.168.1.0/24", "10.0.0.0/16"},
+	}
+
+	targets := cfg.GetAllTargets()
+	if len(targets) != 3 {
+		t.Fatalf("expected 3 targets, got %d", len(targets))
+	}
+
+	joined := strings.Join(targets, ",")
+	if !strings.Contains(joined, "192.168.1.0/24") || !strings.Contains(joined, "192.168.1.50") {
+		t.Errorf("targets missing expected values: %v", targets)
 	}
 }
 

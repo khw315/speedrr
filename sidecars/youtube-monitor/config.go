@@ -13,7 +13,8 @@ import (
 // Config merepresentasikan konfigurasi YouTube Network Traffic Monitor
 type Config struct {
 	Interface       string        `yaml:"interface"`        // Interface jaringan fisik host (e.g. "eth0", "en0", "br0")
-	TargetIPs       []string      `yaml:"target_ips"`       // IP perangkat yang dipantau (Smart TV, PC, Apple TV)
+	TargetIPs       []string      `yaml:"target_ips"`       // IP perangkat yang dipantau (e.g. "192.168.1.50")
+	TargetSubnets   []string      `yaml:"target_subnets"`   // Subnet/CIDR yang dipantau (e.g. "192.168.1.0/24", "10.0.0.0/16")
 	GatewayIP       string        `yaml:"gateway_ip"`       // IP Gateway/Router (opsional)
 	WebhookURL      string        `yaml:"webhook_url"`      // URL webhook tujuan (Speedrr / Generic Webhook)
 	CooldownTimeout time.Duration `yaml:"cooldown_seconds"` // Cooldown timeout sebelum state kembali IDLE
@@ -27,6 +28,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		Interface:       "eth0",
 		TargetIPs:       []string{},
+		TargetSubnets:   []string{},
 		GatewayIP:       "",
 		WebhookURL:      "http://speedrr:8080/api/v1/webhook/stream",
 		CooldownTimeout: 30 * time.Second,
@@ -34,6 +36,14 @@ func DefaultConfig() *Config {
 		SnapLen:         65535,
 		Debug:           false,
 	}
+}
+
+// GetAllTargets menggabungkan target IP tunggal dan subnet CIDR
+func (c *Config) GetAllTargets() []string {
+	var targets []string
+	targets = append(targets, c.TargetIPs...)
+	targets = append(targets, c.TargetSubnets...)
+	return targets
 }
 
 // LoadConfig memuat konfigurasi dari file YAML dan/atau environment variables
@@ -61,6 +71,7 @@ func applyEnvOverrides(cfg *Config) {
 	applyStringEnv("GATEWAY_IP", &cfg.GatewayIP)
 	applyStringEnv("WEBHOOK_URL", &cfg.WebhookURL)
 	applyStringSliceEnv("TARGET_IPS", &cfg.TargetIPs)
+	applyStringSliceEnv("TARGET_SUBNETS", &cfg.TargetSubnets)
 	applyDurationSecondsEnv("COOLDOWN_SECONDS", &cfg.CooldownTimeout)
 	applyBoolEnv("PROMISCUOUS", &cfg.Promiscuous)
 	applyBoolEnv("DEBUG", &cfg.Debug)

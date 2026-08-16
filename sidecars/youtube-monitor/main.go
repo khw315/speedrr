@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -30,81 +31,138 @@ const (
 
 // WebhookPayload struktur payload JSON yang dikirimkan ke endpoint Speedrr
 type WebhookPayload struct {
-	Event     string    `json:"event"`     // "stream_started" atau "stream_stopped"
-	State     string    `json:"state"`     // "ACTIVE" atau "IDLE"
-	Service   string    `json:"service"`   // "youtube"
-	TargetIP  string    `json:"target_ip"` // IP perangkat yang memutar streaming
-	Matched   string    `json:"matched"`   // SNI atau Domain DNS yang tertangkap
-	Protocol  string    `json:"protocol"`  // "TLS" atau "DNS"
-	Timestamp time.Time `json:"timestamp"`
+	Event         string    `json:"event"`               // "stream_started", "stream_stopped", "stream_update"
+	State         string    `json:"state"`               // "ACTIVE" atau "IDLE"
+	Service       string    `json:"service"`             // "youtube"
+	TargetIP      string    `json:"target_ip"`           // IP perangkat spesifik yang memicu event
+	ActiveClients []string  `json:"active_clients"`      // Daftar semua IP di subnet yang sedang aktif streaming
+	ActiveCount   int       `json:"active_stream_count"` // Total stream aktif di subnet
+	Matched       string    `json:"matched"`             // SNI atau Domain DNS yang tertangkap
+	Protocol      string    `json:"protocol"`            // "TLS" atau "DNS"
+	Timestamp     time.Time `json:"timestamp"`
 }
 
-// StateManager mengelola state streaming secara thread-safe dengan timer cooldown
+// StateManager mengelola state streaming secara thread-safe untuk multiple client/subnet
 type StateManager struct {
-	mu           sync.Mutex
-	currentState StreamState
-	cooldownDur  time.Duration
-	timer        *time.Timer
-	targetIP     string
-	webhookURL   string
-	httpClient   *http.Client
+	mu            sync.Mutex
+	currentState  StreamState
+	cooldownDur   time.Duration
+	activeClients map[string]*time.Timer
+	webhookURL    string
+	httpClient    *http.Client
 }
 
 // NewStateManager inisialisasi state manager
-func NewStateManager(targetIP, webhookURL string, cooldown time.Duration) *StateManager {
+func NewStateManager(webhookURL string, cooldown time.Duration) *StateManager {
 	return &StateManager{
-		currentState: StateIdle,
-		cooldownDur:  cooldown,
-		targetIP:     targetIP,
-		webhookURL:   webhookURL,
+		currentState:  StateIdle,
+		cooldownDur:   cooldown,
+		activeClients: make(map[string]*time.Timer),
+		webhookURL:    webhookURL,
 		httpClient: &http.Client{
 			Timeout: 5 * time.Second,
 		},
 	}
 }
 
-// OnActivityDetected menangani deteksi paket streaming baru
-func (sm *StateManager) OnActivityDetected(matchedDetail, protocol string) {
+// OnActivityDetected menangani deteksi paket streaming baru dari IP klien tertentu
+func (sm *StateManager) OnActivityDetected(clientIP, matchedDetail, protocol string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	// Jika state sebelumnya IDLE, ubah ke ACTIVE dan kirim webhook event start
-	if sm.currentState == StateIdle {
-		sm.currentState = StateActive
-		log.Printf("[STATE-TRANSITION] IDLE -> ACTIVE (Pemicu: %s via %s)", matchedDetail, protocol)
-		sm.dispatchWebhook("stream_started", StateActive, matchedDetail, protocol)
+	if clientIP == "" {
+		clientIP = "UNKNOWN_CLIENT"
 	}
 
-	// Reset cooldown timer setiap kali paket baru masuk
-	if sm.timer != nil {
-		sm.timer.Stop()
+	timer, exists := sm.activeClients[clientIP]
+	if exists && timer != nil {
+		timer.Stop()
+	} else {
+		sm.handleClientJoin(clientIP, matchedDetail, protocol)
 	}
 
-	sm.timer = time.AfterFunc(sm.cooldownDur, func() {
-		sm.mu.Lock()
-		defer sm.mu.Unlock()
-
-		// Saat timer habis tanpa paket baru, ubah state ke IDLE dan kirim webhook event stop
-		sm.currentState = StateIdle
-		log.Printf("[STATE-TRANSITION] ACTIVE -> IDLE (Cooldown timeout %v tercapai)", sm.cooldownDur)
-		sm.dispatchWebhook("stream_stopped", StateIdle, "cooldown_timeout", "SYSTEM")
+	sm.activeClients[clientIP] = time.AfterFunc(sm.cooldownDur, func() {
+		sm.handleClientTimeout(clientIP)
 	})
 }
 
+func (sm *StateManager) handleClientJoin(clientIP, matchedDetail, protocol string) {
+	isInitialActive := sm.currentState == StateIdle
+	sm.currentState = StateActive
+
+	event := "stream_update"
+	if isInitialActive {
+		event = "stream_started"
+		log.Printf("[STATE-TRANSITION] IDLE -> ACTIVE (Klien: %s | Pemicu: %s via %s)", clientIP, matchedDetail, protocol)
+	} else {
+		log.Printf("[STATE-UPDATE] Klien baru aktif: %s (Total aktif: %d)", clientIP, len(sm.activeClients)+1)
+	}
+
+	// Buat snapshot list active clients
+	activeList := sm.getActiveClientListWith(clientIP)
+	sm.dispatchWebhook(event, StateActive, clientIP, activeList, len(activeList), matchedDetail, protocol)
+}
+
+func (sm *StateManager) handleClientTimeout(clientIP string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	delete(sm.activeClients, clientIP)
+	log.Printf("[COOLDOWN-TIMEOUT] Klien %s selesai streaming.", clientIP)
+
+	activeList := sm.getActiveClientList()
+	activeCount := len(activeList)
+
+	if activeCount == 0 {
+		sm.currentState = StateIdle
+		log.Printf("[STATE-TRANSITION] ACTIVE -> IDLE (Seluruh klien di subnet telah IDLE)")
+		sm.dispatchWebhook("stream_stopped", StateIdle, clientIP, activeList, 0, "cooldown_timeout", "SYSTEM")
+	} else {
+		log.Printf("[STATE-UPDATE] Sisa klien aktif di subnet: %v (Total: %d)", activeList, activeCount)
+		sm.dispatchWebhook("stream_update", StateActive, clientIP, activeList, activeCount, "client_expired", "SYSTEM")
+	}
+}
+
+func (sm *StateManager) getActiveClientList() []string {
+	list := make([]string, 0, len(sm.activeClients))
+	for ip := range sm.activeClients {
+		list = append(list, ip)
+	}
+	sort.Strings(list)
+	return list
+}
+
+func (sm *StateManager) getActiveClientListWith(extraIP string) []string {
+	set := make(map[string]struct{})
+	for ip := range sm.activeClients {
+		set[ip] = struct{}{}
+	}
+	set[extraIP] = struct{}{}
+
+	list := make([]string, 0, len(set))
+	for ip := range set {
+		list = append(list, ip)
+	}
+	sort.Strings(list)
+	return list
+}
+
 // dispatchWebhook mengirimkan notifikasi HTTP POST JSON secara asynchronous
-func (sm *StateManager) dispatchWebhook(event string, state StreamState, matched, protocol string) {
+func (sm *StateManager) dispatchWebhook(event string, state StreamState, targetIP string, activeClients []string, activeCount int, matched, protocol string) {
 	if sm.webhookURL == "" {
 		return
 	}
 
 	payload := WebhookPayload{
-		Event:     event,
-		State:     string(state),
-		Service:   "youtube",
-		TargetIP:  sm.targetIP,
-		Matched:   matched,
-		Protocol:  protocol,
-		Timestamp: time.Now().UTC(),
+		Event:         event,
+		State:         string(state),
+		Service:       "youtube",
+		TargetIP:      targetIP,
+		ActiveClients: activeClients,
+		ActiveCount:   activeCount,
+		Matched:       matched,
+		Protocol:      protocol,
+		Timestamp:     time.Now().UTC(),
 	}
 
 	go sm.sendWebhookRequest(sm.webhookURL, payload)
@@ -136,7 +194,7 @@ func (sm *StateManager) sendWebhookRequest(url string, p WebhookPayload) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		log.Printf("[WEBHOOK-SUCCESS] %s -> %s (HTTP %d)", p.Event, url, resp.StatusCode)
+		log.Printf("[WEBHOOK-SUCCESS] %s (Client: %s, Streams: %d) -> %s (HTTP %d)", p.Event, p.TargetIP, p.ActiveCount, url, resp.StatusCode)
 	} else {
 		log.Printf("[WEBHOOK-WARN] Endpoint merespons status: %s", resp.Status)
 	}
@@ -146,7 +204,6 @@ func (sm *StateManager) sendWebhookRequest(url string, p WebhookPayload) {
 // TLS CLIENT HELLO SNI PARSER (Zero-allocation Byte Offset Extraction)
 // ============================================================================
 
-// extractTLSClientHelloSNI mengekstrak Server Name Indication (SNI) dari payload TLS Handshake
 func extractTLSClientHelloSNI(payload []byte) (string, bool) {
 	if !isTLSClientHello(payload) {
 		return "", false
@@ -161,27 +218,23 @@ func extractTLSClientHelloSNI(payload []byte) (string, bool) {
 }
 
 func isTLSClientHello(payload []byte) bool {
-	// [0]: ContentType 0x16 (Handshake), [5]: HandshakeType 0x01 (Client Hello)
 	return len(payload) >= 44 && payload[0] == 0x16 && payload[5] == 0x01
 }
 
 func skipClientHelloHeader(payload []byte) (int, bool) {
-	offset := 43 // Titik awal setelah Client Random (5 + 4 + 2 + 32)
+	offset := 43
 
-	// Lewati Session ID
 	if offset >= len(payload) {
 		return 0, false
 	}
 	offset += 1 + int(payload[offset])
 
-	// Lewati Cipher Suites
 	if offset+2 > len(payload) {
 		return 0, false
 	}
 	cipherSuitesLen := int(binary.BigEndian.Uint16(payload[offset : offset+2]))
 	offset += 2 + cipherSuitesLen
 
-	// Lewati Compression Methods
 	if offset+1 > len(payload) {
 		return 0, false
 	}
@@ -223,7 +276,6 @@ func scanExtensionsForSNI(payload []byte, offset int) (string, bool) {
 }
 
 func parseSNIBlock(sniBlock []byte) (string, bool) {
-	// sniBlock[2]: NameType (0 = Hostname), sniBlock[3..5]: Hostname length
 	if len(sniBlock) < 5 || sniBlock[2] != 0 {
 		return "", false
 	}
@@ -235,7 +287,6 @@ func parseSNIBlock(sniBlock []byte) (string, bool) {
 	return "", false
 }
 
-// isYouTubeTraffic memeriksa apakah domain atau SNI merupakan target streaming YouTube
 func isYouTubeTraffic(domain string) bool {
 	domain = strings.ToLower(domain)
 	targetPatterns := []string{
@@ -255,6 +306,21 @@ func isYouTubeTraffic(domain string) bool {
 	return false
 }
 
+// extractSourceIP mengambil IP address pengirim (klien lokal) dari paket
+func extractSourceIP(packet gopacket.Packet) string {
+	if ipLayer := packet.Layer(layers.LayerTypeIPv4); ipLayer != nil {
+		if ip, ok := ipLayer.(*layers.IPv4); ok {
+			return ip.SrcIP.String()
+		}
+	}
+	if ipLayer := packet.Layer(layers.LayerTypeIPv6); ipLayer != nil {
+		if ip, ok := ipLayer.(*layers.IPv6); ok {
+			return ip.SrcIP.String()
+		}
+	}
+	return ""
+}
+
 // ============================================================================
 // MODULAR APPLICATION RUNTIME & CAPTURE LOGIC
 // ============================================================================
@@ -270,11 +336,12 @@ func initAppConfig() *Config {
 		log.Fatalf("[FATAL] Gagal membaca konfigurasi: %v", err)
 	}
 
-	log.Printf("[CONFIG] Interface   : %s", cfg.Interface)
-	log.Printf("[CONFIG] Target IPs  : %v", cfg.TargetIPs)
-	log.Printf("[CONFIG] Webhook URL : %s", cfg.WebhookURL)
-	log.Printf("[CONFIG] Cooldown    : %v", cfg.CooldownTimeout)
-	log.Printf("[CONFIG] Promiscuous : %v", cfg.Promiscuous)
+	log.Printf("[CONFIG] Interface      : %s", cfg.Interface)
+	log.Printf("[CONFIG] Target IPs     : %v", cfg.TargetIPs)
+	log.Printf("[CONFIG] Target Subnets : %v", cfg.TargetSubnets)
+	log.Printf("[CONFIG] Webhook URL    : %s", cfg.WebhookURL)
+	log.Printf("[CONFIG] Cooldown       : %v", cfg.CooldownTimeout)
+	log.Printf("[CONFIG] Promiscuous    : %v", cfg.Promiscuous)
 
 	return cfg
 }
@@ -287,31 +354,30 @@ func openPCAPHandle(cfg *Config) *pcap.Handle {
 	return handle
 }
 
-func applyBPFFilter(handle *pcap.Handle, targetIPs []string) {
-	var hostFilters []string
-	for _, ip := range targetIPs {
-		hostFilters = append(hostFilters, fmt.Sprintf("host %s", ip))
+func buildBPFFilter(targets []string) string {
+	var filters []string
+	for _, target := range targets {
+		if strings.Contains(target, "/") {
+			// Subnet / CIDR format: net 192.168.1.0/24
+			filters = append(filters, fmt.Sprintf("net %s", target))
+		} else if target != "" {
+			// Single Host IP: host 192.168.1.50
+			filters = append(filters, fmt.Sprintf("host %s", target))
+		}
 	}
 
-	var bpfFilter string
-	if len(hostFilters) > 0 {
-		bpfFilter = fmt.Sprintf("(tcp or udp) and (port 53 or port 443) and (%s)", strings.Join(hostFilters, " or "))
-	} else {
-		bpfFilter = "(tcp or udp) and (port 53 or port 443)"
+	if len(filters) > 0 {
+		return fmt.Sprintf("(tcp or udp) and (port 53 or port 443) and (%s)", strings.Join(filters, " or "))
 	}
+	return "(tcp or udp) and (port 53 or port 443)"
+}
 
+func applyBPFFilter(handle *pcap.Handle, targets []string) {
+	bpfFilter := buildBPFFilter(targets)
 	if err := handle.SetBPFFilter(bpfFilter); err != nil {
 		log.Fatalf("[FATAL] Gagal memasang BPF Filter '%s': %v", bpfFilter, err)
 	}
 	log.Printf("[BPF] Filter aktif di kernel: %s", bpfFilter)
-}
-
-func initStateManager(cfg *Config) *StateManager {
-	primaryTarget := "MULTIPLE_TARGETS"
-	if len(cfg.TargetIPs) > 0 {
-		primaryTarget = cfg.TargetIPs[0]
-	}
-	return NewStateManager(primaryTarget, cfg.WebhookURL, cfg.CooldownTimeout)
 }
 
 func processPacketStream(packetSource *gopacket.PacketSource, cfg *Config, stateMgr *StateManager) {
@@ -324,19 +390,21 @@ func processPacketStream(packetSource *gopacket.PacketSource, cfg *Config, state
 }
 
 func processPacket(packet gopacket.Packet, cfg *Config, stateMgr *StateManager) {
+	clientIP := extractSourceIP(packet)
+
 	// 1. Deteksi DNS Query (UDP 53)
 	if dnsLayer := packet.Layer(layers.LayerTypeDNS); dnsLayer != nil {
-		handleDNSPacket(dnsLayer, cfg, stateMgr)
+		handleDNSPacket(dnsLayer, clientIP, cfg, stateMgr)
 		return
 	}
 
 	// 2. Deteksi TLS Client Hello SNI (TCP 443)
 	if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
-		handleTCPPacket(tcpLayer, stateMgr)
+		handleTCPPacket(tcpLayer, clientIP, stateMgr)
 	}
 }
 
-func handleDNSPacket(dnsLayer gopacket.Layer, cfg *Config, stateMgr *StateManager) {
+func handleDNSPacket(dnsLayer gopacket.Layer, clientIP string, cfg *Config, stateMgr *StateManager) {
 	dns, ok := dnsLayer.(*layers.DNS)
 	if !ok || dns.QR {
 		return
@@ -346,14 +414,14 @@ func handleDNSPacket(dnsLayer gopacket.Layer, cfg *Config, stateMgr *StateManage
 		domain := string(q.Name)
 		if isYouTubeTraffic(domain) {
 			if cfg.Debug {
-				log.Printf("[DNS-MATCH] Query: %s", domain)
+				log.Printf("[DNS-MATCH] Klien %s Query: %s", clientIP, domain)
 			}
-			stateMgr.OnActivityDetected(domain, "DNS")
+			stateMgr.OnActivityDetected(clientIP, domain, "DNS")
 		}
 	}
 }
 
-func handleTCPPacket(tcpLayer gopacket.Layer, stateMgr *StateManager) {
+func handleTCPPacket(tcpLayer gopacket.Layer, clientIP string, stateMgr *StateManager) {
 	tcp, ok := tcpLayer.(*layers.TCP)
 	if !ok || len(tcp.Payload) == 0 {
 		return
@@ -361,8 +429,8 @@ func handleTCPPacket(tcpLayer gopacket.Layer, stateMgr *StateManager) {
 
 	sni, ok := extractTLSClientHelloSNI(tcp.Payload)
 	if ok && isYouTubeTraffic(sni) {
-		log.Printf("[TLS-MATCH] Terdeteksi Streaming SNI: %s", sni)
-		stateMgr.OnActivityDetected(sni, "TLS")
+		log.Printf("[TLS-MATCH] Klien %s SNI: %s", clientIP, sni)
+		stateMgr.OnActivityDetected(clientIP, sni, "TLS")
 	}
 }
 
@@ -386,9 +454,9 @@ func main() {
 	handle := openPCAPHandle(cfg)
 	defer handle.Close()
 
-	applyBPFFilter(handle, cfg.TargetIPs)
+	applyBPFFilter(handle, cfg.GetAllTargets())
 
-	stateMgr := initStateManager(cfg)
+	stateMgr := NewStateManager(cfg.WebhookURL, cfg.CooldownTimeout)
 
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 	packetSource.NoCopy = true

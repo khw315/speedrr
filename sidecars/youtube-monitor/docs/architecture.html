@@ -194,7 +194,7 @@
         
         <!-- LAN Zone -->
         <rect x="20" y="40" width="220" height="340" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.15)" stroke-dasharray="4,4"/>
-        <text x="32" y="60" fill="#7a8399" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.12em">ZONE: LOCAL HOME LAN</text>
+        <text x="32" y="60" fill="#7a8399" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.12em">ZONE: HOME LAN SUBNET / VLAN</text>
 
         <!-- Sidecar Container Zone -->
         <rect x="270" y="40" width="390" height="340" rx="8" fill="rgba(235,108,54,0.03)" stroke="rgba(235,108,54,0.30)" stroke-dasharray="4,4"/>
@@ -240,13 +240,13 @@
         <!-- NODES                                                             -->
         <!-- ================================================================= -->
 
-        <!-- 1. Target LAN Device (Smart TV / Apple TV) -->
+        <!-- 1. Target LAN Subnet Devices -->
         <rect x="50" y="80" width="140" height="80" rx="6" fill="#f5f5f5"/>
         <rect x="50" y="80" width="140" height="80" rx="6" fill="rgba(79,93,117,0.08)" stroke="#4f5d75" stroke-width="1"/>
         <rect x="58" y="88" width="34" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.4)" stroke-width="0.8"/>
-        <text x="75" y="97" fill="#4f5d75" font-family="'Geist Mono', monospace" font-size="7" text-anchor="middle" letter-spacing="0.08em">TARGET</text>
-        <text x="120" y="122" fill="#2d3142" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Smart TV / AppleTV</text>
-        <text x="120" y="140" fill="#7a8399" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">192.168.1.50</text>
+        <text x="75" y="97" fill="#4f5d75" font-family="'Geist Mono', monospace" font-size="7" text-anchor="middle" letter-spacing="0.08em">SUBNET</text>
+        <text x="120" y="122" fill="#2d3142" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Subnet Clients</text>
+        <text x="120" y="140" fill="#7a8399" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">192.168.1.0/24</text>
 
         <!-- 2. Local DNS/Gateway -->
         <rect x="50" y="250" width="140" height="80" rx="6" fill="#f5f5f5"/>
@@ -338,10 +338,10 @@
         <p class="eyebrow">PACKET CAPTURE</p>
         <div class="card-header">
           <span class="card-dot coral"></span>
-          <h3>Zero-Alloc SNI Parsing</h3>
+          <h3>Subnet BPF & Zero-Alloc SNI</h3>
         </div>
         <ul>
-          <li>Linux kernel BPF filter limits processing strictly to target IPs and ports 53/443.</li>
+          <li>Linux kernel BPF filter supports single IPs (<code>host</code>) and full CIDR subnets (<code>net 192.168.1.0/24</code>).</li>
           <li>Byte-offset TLS Client Hello parser extracts domain names without regexp memory allocations.</li>
         </ul>
       </div>
@@ -350,11 +350,11 @@
         <p class="eyebrow">STABILITY</p>
         <div class="card-header">
           <span class="card-dot dark"></span>
-          <h3>Debounce & Cooldown</h3>
+          <h3>Multi-Client Tracking</h3>
         </div>
         <ul>
-          <li>Thread-safe <code>sync.Mutex</code> protects state transitions between ACTIVE and IDLE.</li>
-          <li>Configurable cooldown timer (e.g. 30s) prevents rate-limit flapping during video buffering.</li>
+          <li>Per-client timer tracking manages independent cooldowns across the whole subnet.</li>
+          <li>Aggregates active client count (<code>active_stream_count</code>) and list in real time.</li>
         </ul>
       </div>
 
@@ -365,8 +365,8 @@
           <h3>Automated Enforcement</h3>
         </div>
         <ul>
-          <li>Asynchronous JSON webhook dispatches instantly to Speedrr's webhook receiver.</li>
-          <li>Automatically throttles torrent client upload speeds to maintain buffer-free streaming.</li>
+          <li>Asynchronous JSON webhook dispatches instantly on stream start, update, and stop events.</li>
+          <li>Allows Speedrr to dynamically scale bandwidth based on exact active stream count.</li>
         </ul>
       </div>
     </div>

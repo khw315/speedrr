@@ -22,7 +22,7 @@ services:
       - ./logs:/app/logs
 
   # ============================================================================
-  # YOUTUBE NETWORK MONITOR - Promiscuous Sniffer & SNI Parser Sidecar
+  # YOUTUBE NETWORK MONITOR - Promiscuous Sniffer & Subnet SNI Parser Sidecar
   # ============================================================================
   youtube-monitor:
     build:
@@ -31,14 +31,15 @@ services:
     image: speedrr-youtube-monitor:latest
     container_name: speedrr-youtube-monitor
     restart: unless-stopped
-    # Wajib host network mode agar dapat menyadap paket pada interface fisik host/LAN
+    # Wajib host network mode agar dapat menyadap paket pada interface fisik host/LAN/VLAN
     network_mode: host
     cap_add:
       - NET_ADMIN
       - NET_RAW
     environment:
       - MONITOR_INTERFACE=eth0                         # Ganti dengan nama interface fisik host Anda (e.g. eth0, br0, enp3s0)
-      - TARGET_IPS=192.168.1.50,192.168.1.51           # IP target di LAN (Smart TV / Apple TV / PC)
+      - TARGET_IPS=192.168.1.50                        # IP target spesifik (opsional)
+      - TARGET_SUBNETS=192.168.1.0/24,10.0.10.0/24     # Subnet / CIDR yang dipantau (mendukung multiple subnets)
       - WEBHOOK_URL=http://127.0.0.1:8080/api/v1/webhook/stream
       - COOLDOWN_SECONDS=30
       - PROMISCUOUS=true
