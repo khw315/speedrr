@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -319,19 +320,68 @@ func isYouTubeTraffic(domain string) bool {
 	return false
 }
 
-// extractSourceIP retrieves the client source IP address from the IPv4/IPv6 packet header.
+// extractSourceIP retrieves the client local IP address from the IPv4/IPv6 packet header.
 func extractSourceIP(packet gopacket.Packet) string {
 	if ipLayer := packet.Layer(layers.LayerTypeIPv4); ipLayer != nil {
 		if ip, ok := ipLayer.(*layers.IPv4); ok {
+			if isPrivateIP(ip.SrcIP) {
+				return ip.SrcIP.String()
+			}
+			if isPrivateIP(ip.DstIP) {
+				return ip.DstIP.String()
+			}
 			return ip.SrcIP.String()
 		}
 	}
 	if ipLayer := packet.Layer(layers.LayerTypeIPv6); ipLayer != nil {
 		if ip, ok := ipLayer.(*layers.IPv6); ok {
+			if isPrivateIP(ip.SrcIP) {
+				return ip.SrcIP.String()
+			}
+			if isPrivateIP(ip.DstIP) {
+				return ip.DstIP.String()
+			}
 			return ip.SrcIP.String()
 		}
 	}
 	return ""
+}
+
+func isPrivateIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast()
+}
+
+func findYouTubeDomainInPayload(payload []byte) (string, bool) {
+	if len(payload) == 0 {
+		return "", false
+	}
+
+	// 1. Try TLS Client Hello SNI parser first
+	if sni, ok := extractTLSClientHelloSNI(payload); ok && isYouTubeTraffic(sni) {
+		return sni, true
+	}
+
+	// 2. Fallback byte search for streaming tokens in QUIC/HTTP3/TLS frames
+	payloadLower := bytes.ToLower(payload)
+	targetPatterns := [][]byte{
+		[]byte("googlevideo.com"),
+		[]byte("youtube.com"),
+		[]byte("ytimg.com"),
+		[]byte("video.google.com"),
+		[]byte("youtu.be"),
+		[]byte("youtubei.googleapis.com"),
+	}
+
+	for _, p := range targetPatterns {
+		if bytes.Contains(payloadLower, p) {
+			return string(p), true
+		}
+	}
+
+	return "", false
 }
 
 // ============================================================================
@@ -421,6 +471,12 @@ func processPacket(packet gopacket.Packet, cfg *Config, stateMgr *StateManager) 
 	// 2. Detect TLS Client Hello SNI (TCP 443)
 	if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
 		handleTCPPacket(tcpLayer, clientIP, stateMgr)
+		return
+	}
+
+	// 3. Detect QUIC / HTTP3 & Raw DNS (UDP 443 / 53)
+	if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
+		handleUDPPacket(udpLayer, clientIP, cfg, stateMgr)
 	}
 }
 
@@ -433,9 +489,7 @@ func handleDNSPacket(dnsLayer gopacket.Layer, clientIP string, cfg *Config, stat
 	for _, q := range dns.Questions {
 		domain := string(q.Name)
 		if isYouTubeTraffic(domain) {
-			if cfg.Debug {
-				log.Printf("[DNS-MATCH] Client %s Query: %s", clientIP, domain)
-			}
+			log.Printf("[DNS-MATCH] Client %s Query: %s", clientIP, domain)
 			stateMgr.OnActivityDetected(clientIP, domain, "DNS")
 		}
 	}
@@ -447,10 +501,45 @@ func handleTCPPacket(tcpLayer gopacket.Layer, clientIP string, stateMgr *StateMa
 		return
 	}
 
-	sni, ok := extractTLSClientHelloSNI(tcp.Payload)
-	if ok && isYouTubeTraffic(sni) {
+	if sni, ok := extractTLSClientHelloSNI(tcp.Payload); ok && isYouTubeTraffic(sni) {
 		log.Printf("[TLS-MATCH] Client %s SNI: %s", clientIP, sni)
 		stateMgr.OnActivityDetected(clientIP, sni, "TLS")
+		return
+	}
+
+	if matchedDomain, ok := findYouTubeDomainInPayload(tcp.Payload); ok {
+		log.Printf("[TCP-MATCH] Client %s Pattern: %s", clientIP, matchedDomain)
+		stateMgr.OnActivityDetected(clientIP, matchedDomain, "TCP")
+	}
+}
+
+func handleUDPPacket(udpLayer gopacket.Layer, clientIP string, cfg *Config, stateMgr *StateManager) {
+	udp, ok := udpLayer.(*layers.UDP)
+	if !ok || len(udp.Payload) == 0 {
+		return
+	}
+
+	// Fallback DNS decoding if layer not sliced
+	if udp.SrcPort == 53 || udp.DstPort == 53 {
+		var dns layers.DNS
+		if err := dns.DecodeFromBytes(udp.Payload, gopacket.NilDecodeFeedback); err == nil && !dns.QR {
+			for _, q := range dns.Questions {
+				domain := string(q.Name)
+				if isYouTubeTraffic(domain) {
+					log.Printf("[DNS-MATCH] Client %s Query: %s", clientIP, domain)
+					stateMgr.OnActivityDetected(clientIP, domain, "DNS")
+					return
+				}
+			}
+		}
+	}
+
+	// QUIC / HTTP/3 on port 443
+	if udp.DstPort == 443 || udp.SrcPort == 443 {
+		if matchedDomain, ok := findYouTubeDomainInPayload(udp.Payload); ok {
+			log.Printf("[QUIC-MATCH] Client %s Domain: %s", clientIP, matchedDomain)
+			stateMgr.OnActivityDetected(clientIP, matchedDomain, "QUIC")
+		}
 	}
 }
 
