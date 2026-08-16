@@ -232,7 +232,6 @@ func TestExtractSourceIP(t *testing.T) {
 
 func TestPacketProcessing(t *testing.T) {
 	sm := NewStateManager("", 10*time.Second)
-	cfg := &Config{Debug: true}
 
 	// 1. Process DNS Packet
 	dns := &layers.DNS{
@@ -244,7 +243,7 @@ func TestPacketProcessing(t *testing.T) {
 	opts := gopacket.SerializeOptions{}
 	if err := gopacket.SerializeLayers(buf, opts, dns); err == nil {
 		pkt := gopacket.NewPacket(buf.Bytes(), layers.LayerTypeDNS, gopacket.Default)
-		processPacket(pkt, cfg, sm)
+		processPacket(pkt, sm)
 	}
 
 	// 2. Process TCP Packet with SNI payload
@@ -275,10 +274,24 @@ func TestPacketProcessing(t *testing.T) {
 	bufTCP := gopacket.NewSerializeBuffer()
 	if err := gopacket.SerializeLayers(bufTCP, opts, tcp); err == nil {
 		pktTCP := gopacket.NewPacket(bufTCP.Bytes(), layers.LayerTypeTCP, gopacket.Default)
-		processPacket(pktTCP, cfg, sm)
+		processPacket(pktTCP, sm)
 	}
 
-	// 3. Process Non-matching packet
+	// 3. Process UDP QUIC Packet
+	udp := &layers.UDP{
+		SrcPort: 54321,
+		DstPort: 443,
+		BaseLayer: layers.BaseLayer{
+			Payload: []byte("dummy-quic-header-rr1.googlevideo.com-stream-payload"),
+		},
+	}
+	bufUDP := gopacket.NewSerializeBuffer()
+	if err := gopacket.SerializeLayers(bufUDP, opts, udp); err == nil {
+		pktUDP := gopacket.NewPacket(bufUDP.Bytes(), layers.LayerTypeUDP, gopacket.Default)
+		processPacket(pktUDP, sm)
+	}
+
+	// 4. Process Non-matching packet
 	dummyPkt := gopacket.NewPacket([]byte{0x00, 0x01, 0x02}, layers.LayerTypeEthernet, gopacket.Default)
-	processPacket(dummyPkt, cfg, sm)
+	processPacket(dummyPkt, sm)
 }

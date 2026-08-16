@@ -322,27 +322,24 @@ func isYouTubeTraffic(domain string) bool {
 
 // extractSourceIP retrieves the client local IP address from the IPv4/IPv6 packet header.
 func extractSourceIP(packet gopacket.Packet) string {
-	if ipLayer := packet.Layer(layers.LayerTypeIPv4); ipLayer != nil {
-		if ip, ok := ipLayer.(*layers.IPv4); ok {
-			if isPrivateIP(ip.SrcIP) {
-				return ip.SrcIP.String()
-			}
-			if isPrivateIP(ip.DstIP) {
-				return ip.DstIP.String()
-			}
-			return ip.SrcIP.String()
-		}
+	if ip4, ok := packet.Layer(layers.LayerTypeIPv4).(*layers.IPv4); ok && ip4 != nil {
+		return extractIPFromEndpoints(ip4.SrcIP, ip4.DstIP)
 	}
-	if ipLayer := packet.Layer(layers.LayerTypeIPv6); ipLayer != nil {
-		if ip, ok := ipLayer.(*layers.IPv6); ok {
-			if isPrivateIP(ip.SrcIP) {
-				return ip.SrcIP.String()
-			}
-			if isPrivateIP(ip.DstIP) {
-				return ip.DstIP.String()
-			}
-			return ip.SrcIP.String()
-		}
+	if ip6, ok := packet.Layer(layers.LayerTypeIPv6).(*layers.IPv6); ok && ip6 != nil {
+		return extractIPFromEndpoints(ip6.SrcIP, ip6.DstIP)
+	}
+	return ""
+}
+
+func extractIPFromEndpoints(src, dst net.IP) string {
+	if isPrivateIP(src) {
+		return src.String()
+	}
+	if isPrivateIP(dst) {
+		return dst.String()
+	}
+	if src != nil {
+		return src.String()
 	}
 	return ""
 }
@@ -450,21 +447,21 @@ func applyBPFFilter(handle *pcap.Handle, targets []string) {
 	log.Printf("[BPF] Active kernel filter: %s", bpfFilter)
 }
 
-func processPacketStream(packetSource *gopacket.PacketSource, cfg *Config, stateMgr *StateManager) {
+func processPacketStream(packetSource *gopacket.PacketSource, stateMgr *StateManager) {
 	for packet := range packetSource.Packets() {
 		if packet == nil {
 			continue
 		}
-		processPacket(packet, cfg, stateMgr)
+		processPacket(packet, stateMgr)
 	}
 }
 
-func processPacket(packet gopacket.Packet, cfg *Config, stateMgr *StateManager) {
+func processPacket(packet gopacket.Packet, stateMgr *StateManager) {
 	clientIP := extractSourceIP(packet)
 
 	// 1. Detect DNS Query (UDP 53)
 	if dnsLayer := packet.Layer(layers.LayerTypeDNS); dnsLayer != nil {
-		handleDNSPacket(dnsLayer, clientIP, cfg, stateMgr)
+		handleDNSPacket(dnsLayer, clientIP, stateMgr)
 		return
 	}
 
@@ -476,11 +473,11 @@ func processPacket(packet gopacket.Packet, cfg *Config, stateMgr *StateManager) 
 
 	// 3. Detect QUIC / HTTP3 & Raw DNS (UDP 443 / 53)
 	if udpLayer := packet.Layer(layers.LayerTypeUDP); udpLayer != nil {
-		handleUDPPacket(udpLayer, clientIP, cfg, stateMgr)
+		handleUDPPacket(udpLayer, clientIP, stateMgr)
 	}
 }
 
-func handleDNSPacket(dnsLayer gopacket.Layer, clientIP string, cfg *Config, stateMgr *StateManager) {
+func handleDNSPacket(dnsLayer gopacket.Layer, clientIP string, stateMgr *StateManager) {
 	dns, ok := dnsLayer.(*layers.DNS)
 	if !ok || dns.QR {
 		return
@@ -513,33 +510,42 @@ func handleTCPPacket(tcpLayer gopacket.Layer, clientIP string, stateMgr *StateMa
 	}
 }
 
-func handleUDPPacket(udpLayer gopacket.Layer, clientIP string, cfg *Config, stateMgr *StateManager) {
+func handleUDPPacket(udpLayer gopacket.Layer, clientIP string, stateMgr *StateManager) {
 	udp, ok := udpLayer.(*layers.UDP)
 	if !ok || len(udp.Payload) == 0 {
 		return
 	}
 
-	// Fallback DNS decoding if layer not sliced
 	if udp.SrcPort == 53 || udp.DstPort == 53 {
-		var dns layers.DNS
-		if err := dns.DecodeFromBytes(udp.Payload, gopacket.NilDecodeFeedback); err == nil && !dns.QR {
-			for _, q := range dns.Questions {
-				domain := string(q.Name)
-				if isYouTubeTraffic(domain) {
-					log.Printf("[DNS-MATCH] Client %s Query: %s", clientIP, domain)
-					stateMgr.OnActivityDetected(clientIP, domain, "DNS")
-					return
-				}
-			}
-		}
+		handleFallbackDNS(udp, clientIP, stateMgr)
+		return
 	}
 
-	// QUIC / HTTP/3 on port 443
 	if udp.DstPort == 443 || udp.SrcPort == 443 {
-		if matchedDomain, ok := findYouTubeDomainInPayload(udp.Payload); ok {
-			log.Printf("[QUIC-MATCH] Client %s Domain: %s", clientIP, matchedDomain)
-			stateMgr.OnActivityDetected(clientIP, matchedDomain, "QUIC")
+		handleQUICPacket(udp, clientIP, stateMgr)
+	}
+}
+
+func handleFallbackDNS(udp *layers.UDP, clientIP string, stateMgr *StateManager) {
+	var dns layers.DNS
+	if err := dns.DecodeFromBytes(udp.Payload, gopacket.NilDecodeFeedback); err != nil || dns.QR {
+		return
+	}
+
+	for _, q := range dns.Questions {
+		domain := string(q.Name)
+		if isYouTubeTraffic(domain) {
+			log.Printf("[DNS-MATCH] Client %s Query: %s", clientIP, domain)
+			stateMgr.OnActivityDetected(clientIP, domain, "DNS")
+			return
 		}
+	}
+}
+
+func handleQUICPacket(udp *layers.UDP, clientIP string, stateMgr *StateManager) {
+	if matchedDomain, ok := findYouTubeDomainInPayload(udp.Payload); ok {
+		log.Printf("[QUIC-MATCH] Client %s Domain: %s", clientIP, matchedDomain)
+		stateMgr.OnActivityDetected(clientIP, matchedDomain, "QUIC")
 	}
 }
 
@@ -571,7 +577,7 @@ func main() {
 	packetSource.NoCopy = true
 
 	log.Println("[INFO] Starting real-time packet capture loop...")
-	go processPacketStream(packetSource, cfg, stateMgr)
+	go processPacketStream(packetSource, stateMgr)
 
 	waitForShutdown()
 	log.Println("[SHUTDOWN] Network monitor shut down cleanly.")
