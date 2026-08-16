@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Multi-client active stream state tracker with per-client cooldown timers.
   - Enhanced webhook payload containing `active_clients` list and `active_stream_count` for Speedrr's stream-based speed mapping.
 
+- **Inbound Webhook Receiver Module (`modules.webhook`)**:
+  - Embedded lightweight HTTP server (`net/http`) listening for external streaming events (`/api/v1/webhook/stream`, `/health`).
+  - Supports token authentication (`Bearer` / `X-API-Key` / query parameter).
+  - Integrates seamlessly with `stream_based_speeds` table to dynamically throttle torrent client upload speeds when external streams (e.g. YouTube, sidecars, Home Assistant) become active.
+  - Aggregates external active streams with Plex, Jellyfin, and Emby media server counts.
+  - Instantaneous event-driven recalculation without waiting for periodic polling intervals.
+
 - **YouTube & GoogleVideo Network Streaming Monitor Sidecar (`speedrr-youtube-monitor`)**:
   - High-performance, low-memory Go sidecar for monitoring LAN streaming traffic in promiscuous mode via `gopacket/pcap`.
   - In-kernel BPF filtering for target client IPs (`host`) and subnets (`net <cidr>`) on DNS (Port 53) and TLS/QUIC (Port 443).

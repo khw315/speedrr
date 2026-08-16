@@ -26,9 +26,9 @@ type IgnoreStreamConfig struct {
 }
 
 type StreamBasedSpeedsConfig struct {
-	Enabled bool                   `yaml:"enabled"`
-	Speeds  map[int]interface{}    `yaml:"speeds"`
-	Default interface{}            `yaml:"default"`
+	Enabled bool                `yaml:"enabled"`
+	Speeds  map[int]interface{} `yaml:"speeds"`
+	Default interface{}         `yaml:"default"`
 }
 
 // UnmarshalYAML custom unmarshaler to handle integer keys in speeds map
@@ -64,7 +64,6 @@ func (s *StreamBasedSpeedsConfig) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
-
 type MediaServerConfig struct {
 	Type                string                   `yaml:"type"`
 	URL                 string                   `yaml:"url"`
@@ -85,21 +84,30 @@ type ScheduleConfig struct {
 	Download interface{} `yaml:"download"`
 }
 
+type WebhookConfig struct {
+	Enabled           bool                     `yaml:"enabled"`
+	Port              int                      `yaml:"port"`
+	BindAddress       string                   `yaml:"bind_address"`
+	Token             string                   `yaml:"token"`
+	StreamBasedSpeeds *StreamBasedSpeedsConfig `yaml:"stream_based_speeds"`
+}
+
 type ModulesConfig struct {
 	MediaServers []MediaServerConfig `yaml:"media_servers"`
 	Schedule     []ScheduleConfig    `yaml:"schedule"`
+	Webhook      *WebhookConfig      `yaml:"webhook"`
 }
 
 type SpeedrrConfig struct {
-	LogsPath                  string        `yaml:"logs_path"`
-	Units                     string        `yaml:"units"`
-	MinUpload                 float64       `yaml:"min_upload"`
-	MaxUpload                 float64       `yaml:"max_upload"`
-	MinDownload               float64       `yaml:"min_download"`
-	MaxDownload               float64       `yaml:"max_download"`
+	LogsPath                  string         `yaml:"logs_path"`
+	Units                     string         `yaml:"units"`
+	MinUpload                 float64        `yaml:"min_upload"`
+	MaxUpload                 float64        `yaml:"max_upload"`
+	MinDownload               float64        `yaml:"min_download"`
+	MaxDownload               float64        `yaml:"max_download"`
 	Clients                   []ClientConfig `yaml:"clients"`
-	Modules                   ModulesConfig `yaml:"modules"`
-	ManualSpeedAlgorithmShare bool          `yaml:"manual_speed_algorithm_share"`
+	Modules                   ModulesConfig  `yaml:"modules"`
+	ManualSpeedAlgorithmShare bool           `yaml:"manual_speed_algorithm_share"`
 }
 
 // LoadConfig reads and unmarshals Speedrr configuration from a YAML file.
@@ -127,6 +135,13 @@ func LoadConfig(filePath string) (*SpeedrrConfig, error) {
 		}
 		if cfg.Clients[i].UploadShares <= 0 {
 			cfg.Clients[i].UploadShares = 1
+		}
+	}
+
+	// Set webhook defaults if webhook is enabled
+	if cfg.Modules.Webhook != nil && cfg.Modules.Webhook.Enabled {
+		if cfg.Modules.Webhook.Port <= 0 {
+			cfg.Modules.Webhook.Port = 8080
 		}
 	}
 

@@ -210,14 +210,9 @@ func resolveSpeedForServer(speedsConfig *config.StreamBasedSpeedsConfig, totalSt
 	return maxUpload
 }
 
-func (m *MediaServerModule) GetTargetUploadSpeed() interface{} {
+func (m *MediaServerModule) GetTargetUploadSpeedForCount(totalStreams int) interface{} {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	totalStreams := 0
-	for _, count := range m.streamCountDict {
-		totalStreams += count
-	}
 
 	for _, sCfg := range m.serverConfigs {
 		if sCfg.StreamBasedSpeeds != nil && sCfg.StreamBasedSpeeds.Enabled {
@@ -225,6 +220,21 @@ func (m *MediaServerModule) GetTargetUploadSpeed() interface{} {
 		}
 	}
 
+	return nil
+}
+
+func (m *MediaServerModule) GetTargetUploadSpeed() interface{} {
+	m.mu.Lock()
+	totalStreams := 0
+	for _, count := range m.streamCountDict {
+		totalStreams += count
+	}
+	m.mu.Unlock()
+
+	res := m.GetTargetUploadSpeedForCount(totalStreams)
+	if res != nil {
+		return res
+	}
 	return m.appConfig.MaxUpload
 }
 

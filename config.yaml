@@ -172,3 +172,27 @@ modules:
   #   upload: unlimited
   #   download: unlimited
 
+  # --------------------------------------------------------------------------
+  # WEBHOOK MODULE - REAL-TIME EXTERNAL STREAM INTEGRATION
+  # --------------------------------------------------------------------------
+  # Opens an embedded HTTP server to receive instant streaming notifications
+  # from speedrr-youtube-monitor sidecars, Home Assistant, or custom webhooks.
+  webhook:
+    enabled: true
+    port: 8080
+    bind_address: "0.0.0.0"
+    
+    # Optional: Bearer token or API key authentication (leave empty to disable auth)
+    # token: "your_secret_token_here"
+    
+    # Stream-based speed control based on total active streams reported via webhook
+    stream_based_speeds:
+      enabled: true
+      speeds:
+        0: unlimited    # No active streams = unlimited upload
+        1: 50           # 1 active stream = 50 Mbit/s upload
+        2: 25           # 2 active streams = 25 Mbit/s upload
+        3: 10           # 3+ active streams = 10 Mbit/s upload
+      default: 10
+
+
