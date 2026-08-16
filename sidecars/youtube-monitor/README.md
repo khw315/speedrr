@@ -1,61 +1,64 @@
 # Speedrr Sidecar: YouTube Network Traffic & Subnet Monitor
 
-Microservice/sidecar container berbasis Go (Golang) berkinerja tinggi untuk mendeteksi lalu lintas streaming YouTube (`googlevideo.com`, `youtube.com`) pada jaringan lokal (Home Lab) dan subnet/VLAN, serta mengirimkan event webhook ke [Speedrr](https://github.com/khw315/speedrr) secara otomatis.
+A lightweight, high-performance Go-based microservice and sidecar container designed to detect YouTube and GoogleVideo streaming traffic (`googlevideo.com`, `youtube.com`) across your local network (Home Lab) and subnets/VLANs, and automatically dispatch real-time webhook events to [Speedrr](https://github.com/khw315/speedrr).
 
 ---
 
-## Fitur Utama
+## Key Features
 
-- **Single Host & Subnet/CIDR Monitoring**: Mendukung pemantauan IP spesifik (`192.168.1.50`) maupun seluruh rentang subnet/VLAN (`192.168.1.0/24`, `10.0.10.0/24`).
-- **Multi-Client Stream Tracking**: Melacak seluruh perangkat aktif di subnet secara simultan dan mengirimkan jumlah stream aktif (`active_stream_count`) dan daftar IP aktif (`active_clients`) ke Speedrr.
-- **Zero-Copy / Low Allocation Packet Sniffing**: Menggunakan `gopacket/pcap` dengan BPF (*Berkeley Packet Filter*) terkompilasi langsung pada level kernel Linux.
-- **DNS & TLS Client Hello SNI Extraction**: Mem-parsing DNS Query (Port 53 UDP) dan mengekstrak *Server Name Indication* (SNI) dari handshake TLS Client Hello (Port 443 TCP) secara *byte-offset* tanpa alokasi memori berlebih.
-- **Per-Client Thread-safe Debounce Cooldown**: Menggunakan timer cooldown per-klien untuk mencegah flapping saat video buffering.
-- **Webhook Dispatcher**: Mengirimkan HTTP POST JSON dengan payload status stream (`stream_started`, `stream_update`, `stream_stopped`) ke Speedrr.
-- **Clean Containerization**: Multi-stage Dockerfile berbasis Alpine Linux dengan ukuran image ultra-ringan (~12 MB) dan non-root user capabilities (`CAP_NET_RAW`, `CAP_NET_ADMIN`).
+- **Single Host & Subnet/CIDR Monitoring**: Supports tracking individual target IPs (e.g. `192.168.1.50`) or entire subnet/VLAN ranges (e.g. `192.168.1.0/24`, `10.0.10.0/24`).
+- **Multi-Client Stream Tracking**: Concurrently tracks all active streaming devices in a subnet and provides the aggregated active stream count (`active_stream_count`) and client IP list (`active_clients`) to Speedrr.
+- **Zero-Copy / Low-Allocation Packet Sniffing**: Powered by `gopacket/pcap` with in-kernel Linux Berkeley Packet Filters (BPF).
+- **DNS & TLS Client Hello SNI Extraction**: Inspects DNS Queries (UDP Port 53) and extracts *Server Name Indication* (SNI) hostnames directly from TLS Client Hello handshakes (TCP Port 443) using zero-allocation byte-offset parsing.
+- **Per-Client Thread-Safe Debounce Cooldown**: Maintains dedicated cooldown timers per client to prevent rate-limit flapping during chunked video buffering.
+- **Webhook Dispatcher**: Sends non-blocking HTTP POST JSON payloads (`stream_started`, `stream_update`, `stream_stopped`) to Speedrr.
+- **Minimal Container Footprint**: Multi-stage Alpine-based Docker image (~12 MB) with non-root security (`appuser` with Linux capabilities `CAP_NET_RAW` and `CAP_NET_ADMIN`).
 
 ---
 
-## Struktur Proyek
+## Project Structure
 
 ```
 speedrr/
-├── docker-compose.yml                      # Compose file utama untuk Speedrr + Monitor Sidecar
+├── docker-compose.yml                      # Main compose file orchestrating Speedrr + Monitor Sidecar
 └── sidecars/
     └── youtube-monitor/
         ├── Dockerfile                      # Multi-stage Dockerfile (Alpine + CGO + libpcap)
-        ├── config.go                       # Loader konfigurasi (YAML + Environment Variables)
-        ├── config.example.yaml             # Contoh file konfigurasi
+        ├── config.go                       # Configuration loader (YAML + Environment Variables)
+        ├── config.example.yaml             # Example YAML configuration file
         ├── go.mod / go.sum                 # Go module descriptor & dependencies
-        ├── main.go                         # Engine Packet Capture, SNI Parser, & Webhook
-        ├── main_test.go                    # Unit tests untuk domain matching, BPF filter, & SNI
+        ├── main.go                         # Packet capture engine, SNI parser, state & webhook
+        ├── main_test.go                    # Unit tests for domain matching, BPF filter, & SNI
+        ├── docs/
+        │   └── architecture.html           # Standalone editorial SVG architecture diagram
         └── README.md
 ```
 
 ---
 
-## Cara Menjalankan
+## Deployment & Usage
 
-### 1. Menggunakan Docker Compose (Direkomendasikan)
+### 1. Using Docker Compose (Recommended)
 
-Edit `docker-compose.yml` di root proyek untuk menyesuaikan:
-- `MONITOR_INTERFACE`: Nama interface fisik host Anda (misal `eth0`, `br0`, `enp3s0`).
-- `TARGET_IPS`: Daftar IP perangkat spesifik (opsional).
-- `TARGET_SUBNETS`: Daftar Subnet/CIDR yang ingin dipantau (misal `192.168.1.0/24,10.0.10.0/24`).
-- `WEBHOOK_URL`: Endpoint Webhook Speedrr.
+Edit `docker-compose.yml` in the project root to configure your environment:
+- `MONITOR_INTERFACE`: Physical host interface name (e.g. `eth0`, `br0`, `enp3s0`).
+- `TARGET_IPS`: Comma-separated specific target IPs (optional).
+- `TARGET_SUBNETS`: Comma-separated subnet/CIDR ranges to monitor (e.g. `192.168.1.0/24,10.0.10.0/24`).
+- `WEBHOOK_URL`: Destination Speedrr webhook URL.
 
-Jalankan container:
+Start the containers:
 ```bash
 docker compose up -d --build
 ```
 
-### 2. Build Docker Image Secara Terpisah
+### 2. Standalone Docker Container
 
+Build the Docker image:
 ```bash
 docker build -t speedrr-youtube-monitor:latest ./sidecars/youtube-monitor
 ```
 
-Jalankan container:
+Run the container in host network mode:
 ```bash
 docker run -d \
   --name speedrr-youtube-monitor \
@@ -72,24 +75,24 @@ docker run -d \
 
 ---
 
-## Konfigurasi Environment Variables
+## Environment Variables Configuration
 
-| Variable | Default | Keterangan |
+| Variable | Default | Description |
 |---|---|---|
-| `MONITOR_INTERFACE` | `eth0` | Interface jaringan fisik host |
-| `TARGET_IPS` | `""` | IP perangkat target (pisahkan koma) |
-| `TARGET_SUBNETS` | `""` | Subnet CIDR (e.g. `192.168.1.0/24,10.0.10.0/24`) |
-| `GATEWAY_IP` | `""` | IP Router / Gateway (opsional) |
-| `WEBHOOK_URL` | `http://speedrr:8080/api/v1/webhook/stream` | URL Webhook Speedrr |
-| `COOLDOWN_SECONDS` | `30` | Waktu jeda sebelum status kembali ke IDLE |
-| `PROMISCUOUS` | `true` | Aktifkan promiscuous mode pada adapter jaringan |
-| `DEBUG` | `false` | Cetak log detail query DNS & TLS SNI |
+| `MONITOR_INTERFACE` | `eth0` | Host physical network interface to capture packets from |
+| `TARGET_IPS` | `""` | Comma-separated target host IPs |
+| `TARGET_SUBNETS` | `""` | Comma-separated subnets in CIDR notation (e.g. `192.168.1.0/24,10.0.10.0/24`) |
+| `GATEWAY_IP` | `""` | Gateway / Router IP (optional) |
+| `WEBHOOK_URL` | `http://speedrr:8080/api/v1/webhook/stream` | Destination Webhook endpoint URL |
+| `COOLDOWN_SECONDS` | `30` | Idle timeout duration before a client stream is considered stopped |
+| `PROMISCUOUS` | `true` | Enable promiscuous mode on network interface |
+| `DEBUG` | `false` | Enable verbose debug logging for DNS queries and SNI matches |
 
 ---
 
-## Contoh Payload Webhook Multi-Client Subnet
+## Webhook Payload Examples
 
-Ketika klien pertama di subnet (`192.168.1.105`) mulai streaming:
+**1. First client in subnet (`192.168.1.105`) starts streaming YouTube:**
 ```json
 {
   "event": "stream_started",
@@ -104,7 +107,7 @@ Ketika klien pertama di subnet (`192.168.1.105`) mulai streaming:
 }
 ```
 
-Ketika klien kedua (`192.168.1.120`) juga mulai streaming di subnet yang sama:
+**2. Second client (`192.168.1.120`) in the same subnet starts streaming:**
 ```json
 {
   "event": "stream_update",
@@ -116,5 +119,20 @@ Ketika klien kedua (`192.168.1.120`) juga mulai streaming di subnet yang sama:
   "matched": "rr2---sn-4g5ednld.googlevideo.com",
   "protocol": "TLS",
   "timestamp": "2026-08-17T01:05:15Z"
+}
+```
+
+**3. All clients in the subnet stop streaming and cooldown expires:**
+```json
+{
+  "event": "stream_stopped",
+  "state": "IDLE",
+  "service": "youtube",
+  "target_ip": "192.168.1.120",
+  "active_clients": [],
+  "active_stream_count": 0,
+  "matched": "cooldown_timeout",
+  "protocol": "SYSTEM",
+  "timestamp": "2026-08-17T01:05:45Z"
 }
 ```
