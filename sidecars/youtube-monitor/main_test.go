@@ -229,3 +229,56 @@ func TestExtractSourceIP(t *testing.T) {
 		t.Errorf("expected empty string for non-IP packet, got %s", src)
 	}
 }
+
+func TestPacketProcessing(t *testing.T) {
+	sm := NewStateManager("", 10*time.Second)
+	cfg := &Config{Debug: true}
+
+	// 1. Process DNS Packet
+	dns := &layers.DNS{
+		Questions: []layers.DNSQuestion{
+			{Name: []byte("www.youtube.com")},
+		},
+	}
+	buf := gopacket.NewSerializeBuffer()
+	opts := gopacket.SerializeOptions{}
+	if err := gopacket.SerializeLayers(buf, opts, dns); err == nil {
+		pkt := gopacket.NewPacket(buf.Bytes(), layers.LayerTypeDNS, gopacket.Default)
+		processPacket(pkt, cfg, sm)
+	}
+
+	// 2. Process TCP Packet with SNI payload
+	sniDomain := "rr1---sn-4g5ednld.googlevideo.com"
+	sniBytes := []byte(sniDomain)
+	var payload []byte
+	payload = append(payload, 0x16, 0x03, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x03, 0x03)
+	payload = append(payload, make([]byte, 32)...)
+	payload = append(payload, 0x00, 0x00, 0x02, 0xc0, 0x2f, 0x01, 0x00)
+	var extBlock []byte
+	extBlock = append(extBlock, 0x00, 0x00)
+	var sniExtContent []byte
+	listLen := len(sniBytes) + 3
+	sniExtContent = append(sniExtContent, byte(listLen>>8), byte(listLen&0xff), 0x00, byte(len(sniBytes)>>8), byte(len(sniBytes)&0xff))
+	sniExtContent = append(sniExtContent, sniBytes...)
+	extBlock = append(extBlock, byte(len(sniExtContent)>>8), byte(len(sniExtContent)&0xff))
+	extBlock = append(extBlock, sniExtContent...)
+	payload = append(payload, byte(len(extBlock)>>8), byte(len(extBlock)&0xff))
+	payload = append(payload, extBlock...)
+
+	tcp := &layers.TCP{
+		SrcPort: 12345,
+		DstPort: 443,
+		BaseLayer: layers.BaseLayer{
+			Payload: payload,
+		},
+	}
+	bufTCP := gopacket.NewSerializeBuffer()
+	if err := gopacket.SerializeLayers(bufTCP, opts, tcp); err == nil {
+		pktTCP := gopacket.NewPacket(bufTCP.Bytes(), layers.LayerTypeTCP, gopacket.Default)
+		processPacket(pktTCP, cfg, sm)
+	}
+
+	// 3. Process Non-matching packet
+	dummyPkt := gopacket.NewPacket([]byte{0x00, 0x01, 0x02}, layers.LayerTypeEthernet, gopacket.Default)
+	processPacket(dummyPkt, cfg, sm)
+}

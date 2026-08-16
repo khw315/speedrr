@@ -23,6 +23,18 @@ type Config struct {
 	Debug           bool          `yaml:"debug"`            // Verbose logging mode
 }
 
+type yamlConfig struct {
+	Interface       string   `yaml:"interface"`
+	TargetIPs       []string `yaml:"target_ips"`
+	TargetSubnets   []string `yaml:"target_subnets"`
+	GatewayIP       string   `yaml:"gateway_ip"`
+	WebhookURL      string   `yaml:"webhook_url"`
+	CooldownSeconds int      `yaml:"cooldown_seconds"`
+	Promiscuous     *bool    `yaml:"promiscuous"`
+	SnapLen         int32    `yaml:"snaplen"`
+	Debug           bool     `yaml:"debug"`
+}
+
 // DefaultConfig returns safe default configuration without hardcoded IPs.
 func DefaultConfig() *Config {
 	return &Config{
@@ -53,9 +65,11 @@ func LoadConfig(filePath string) (*Config, error) {
 	// 1. Read from YAML file if available
 	if filePath != "" {
 		if data, err := os.ReadFile(filePath); err == nil {
-			if err := yaml.Unmarshal(data, cfg); err != nil {
+			var raw yamlConfig
+			if err := yaml.Unmarshal(data, &raw); err != nil {
 				return nil, fmt.Errorf("failed to parse YAML configuration: %w", err)
 			}
+			applyYAMLValues(cfg, &raw)
 		}
 	}
 
@@ -63,6 +77,34 @@ func LoadConfig(filePath string) (*Config, error) {
 	applyEnvOverrides(cfg)
 
 	return cfg, nil
+}
+
+func applyYAMLValues(cfg *Config, raw *yamlConfig) {
+	if raw.Interface != "" {
+		cfg.Interface = raw.Interface
+	}
+	if len(raw.TargetIPs) > 0 {
+		cfg.TargetIPs = raw.TargetIPs
+	}
+	if len(raw.TargetSubnets) > 0 {
+		cfg.TargetSubnets = raw.TargetSubnets
+	}
+	if raw.GatewayIP != "" {
+		cfg.GatewayIP = raw.GatewayIP
+	}
+	if raw.WebhookURL != "" {
+		cfg.WebhookURL = raw.WebhookURL
+	}
+	if raw.CooldownSeconds > 0 {
+		cfg.CooldownTimeout = time.Duration(raw.CooldownSeconds) * time.Second
+	}
+	if raw.Promiscuous != nil {
+		cfg.Promiscuous = *raw.Promiscuous
+	}
+	if raw.SnapLen > 0 {
+		cfg.SnapLen = raw.SnapLen
+	}
+	cfg.Debug = raw.Debug
 }
 
 // applyEnvOverrides maps environment variables to configuration fields.
