@@ -53,12 +53,12 @@ func TestBuildBPFFilter(t *testing.T) {
 		{
 			name:     "Single Host IP",
 			targets:  []string{"192.168.1.50"},
-			expected: "(tcp or udp) and (port 53 or port 443) and (host 192.168.1.50)",
+			expected: "(tcp or udp) and (port 53 or port 443) and (host 192.168.1.50 or ip6)",
 		},
 		{
 			name:     "Multiple Hosts and Subnets",
 			targets:  []string{"192.168.1.50", "10.0.0.0/24", "172.16.0.0/16"},
-			expected: "(tcp or udp) and (port 53 or port 443) and (host 192.168.1.50 or net 10.0.0.0/24 or net 172.16.0.0/16)",
+			expected: "(tcp or udp) and (port 53 or port 443) and (host 192.168.1.50 or net 10.0.0.0/24 or net 172.16.0.0/16 or ip6)",
 		},
 	}
 
@@ -243,7 +243,7 @@ func TestPacketProcessing(t *testing.T) {
 	opts := gopacket.SerializeOptions{}
 	if err := gopacket.SerializeLayers(buf, opts, dns); err == nil {
 		pkt := gopacket.NewPacket(buf.Bytes(), layers.LayerTypeDNS, gopacket.Default)
-		processPacket(pkt, sm)
+		processPacket(pkt, true, sm)
 	}
 
 	// 2. Process TCP Packet with SNI payload
@@ -274,7 +274,7 @@ func TestPacketProcessing(t *testing.T) {
 	bufTCP := gopacket.NewSerializeBuffer()
 	if err := gopacket.SerializeLayers(bufTCP, opts, tcp); err == nil {
 		pktTCP := gopacket.NewPacket(bufTCP.Bytes(), layers.LayerTypeTCP, gopacket.Default)
-		processPacket(pktTCP, sm)
+		processPacket(pktTCP, true, sm)
 	}
 
 	// 3. Process UDP QUIC Packet
@@ -288,10 +288,10 @@ func TestPacketProcessing(t *testing.T) {
 	bufUDP := gopacket.NewSerializeBuffer()
 	if err := gopacket.SerializeLayers(bufUDP, opts, udp); err == nil {
 		pktUDP := gopacket.NewPacket(bufUDP.Bytes(), layers.LayerTypeUDP, gopacket.Default)
-		processPacket(pktUDP, sm)
+		processPacket(pktUDP, true, sm)
 	}
 
 	// 4. Process Non-matching packet
 	dummyPkt := gopacket.NewPacket([]byte{0x00, 0x01, 0x02}, layers.LayerTypeEthernet, gopacket.Default)
-	processPacket(dummyPkt, sm)
+	processPacket(dummyPkt, true, sm)
 }
