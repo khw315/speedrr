@@ -1,7 +1,7 @@
 # ==============================================================================
 # STAGE 1: Builder with CGO & Libpcap
 # ==============================================================================
-FROM golang:1.23-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Install compiler toolchain & libpcap headers sorted alphabetically
 RUN apk add --no-cache \
@@ -20,15 +20,17 @@ RUN go mod download
 COPY . .
 
 # Compile Go binary with CGO enabled for libpcap
-RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-w -s" -o speedrr-ytmon .
+RUN CGO_ENABLED=1 go build -ldflags="-w -s" -o speedrr-ytmon .
 
 # ==============================================================================
 # STAGE 2: Minimal Runtime Image
 # ==============================================================================
-FROM alpine:3.20
+FROM alpine:3.21
 
+LABEL org.opencontainers.image.source="https://github.com/khw315/speedrr"
+LABEL org.opencontainers.image.licenses="GPL-3.0"
 LABEL org.opencontainers.image.title="Speedrr YouTube Monitor Sidecar"
-LABEL org.opencontainers.image.description="Promiscuous packet capture & TLS SNI parser to track YouTube streaming on Home Lab LAN"
+LABEL org.opencontainers.image.description="Promiscuous packet capture & TLS SNI parser to track YouTube streaming on Home Lab LAN and subnets."
 
 # Install runtime packages sorted alphabetically
 RUN apk add --no-cache \
@@ -36,8 +38,8 @@ RUN apk add --no-cache \
     libcap \
     libpcap \
     tzdata \
-    && addgroup -S -g 1000 appgroup \
-    && adduser -S -u 1000 -G appgroup appuser
+    && addgroup -S -g 1000 speedrr \
+    && adduser -S -u 1000 -G speedrr -h /home/speedrr speedrr
 
 WORKDIR /app
 
@@ -45,7 +47,8 @@ WORKDIR /app
 COPY --from=builder /app/speedrr-ytmon /usr/local/bin/speedrr-ytmon
 
 # Grant Linux capabilities cap_net_raw & cap_net_admin to allow non-root packet capture
-RUN setcap 'cap_net_raw,cap_net_admin=+ep' /usr/local/bin/speedrr-ytmon
+RUN setcap 'cap_net_raw,cap_net_admin=+ep' /usr/local/bin/speedrr-ytmon \
+    && chown -R speedrr:speedrr /app /home/speedrr
 
 # Default environment variables
 ENV MONITOR_INTERFACE=eth0 \
@@ -56,6 +59,6 @@ ENV MONITOR_INTERFACE=eth0 \
     PROMISCUOUS=true \
     DEBUG=false
 
-USER appuser
+USER speedrr
 
-ENTRYPOINT ["/usr/local/bin/speedrr-ytmon"]
+ENTRYPOINT ["speedrr-ytmon"]
