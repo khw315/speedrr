@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Network Traffic Monitor - Architecture Diagram</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@400;500;600&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #f5f5f5;
+      --paper-card: #ffffff;
+      --ink: #2d3142;
+      --muted: #4f5d75;
+      --soft: #7a8399;
+      --rule: rgba(45, 49, 66, 0.12);
+      --accent: #eb6c36;
+      --accent-tint: rgba(235, 108, 54, 0.08);
+      --link: #2e5aa8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--paper);
+      color: var(--ink);
+      font-family: 'Geist', sans-serif;
+      padding: 2.5rem 2rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .container {
+      max-width: 1040px;
+      width: 100%;
+    }
+
+    header {
+      margin-bottom: 2rem;
+    }
+
+    .eyebrow {
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.75rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.5rem;
+    }
+
+    h1 {
+      font-family: 'Instrument Serif', serif;
+      font-size: 2.25rem;
+      font-weight: 400;
+      color: var(--ink);
+      line-height: 1.2;
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle {
+      font-size: 0.95rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .diagram-wrapper {
+      background: var(--paper);
+      width: 100%;
+      margin: 1.5rem 0 2.5rem 0;
+      overflow-x: auto;
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    /* Cards Grid */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr 0.95fr;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+
+    .card {
+      background: var(--paper-card);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 1.25rem;
+    }
+
+    .card .eyebrow {
+      font-size: 0.7rem;
+      margin-bottom: 0.4rem;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .card-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+    }
+
+    .card-dot.coral { background-color: var(--accent); }
+    .card-dot.blue { background-color: var(--link); }
+    .card-dot.dark { background-color: var(--ink); }
+
+    .card h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    .card ul {
+      list-style: none;
+      font-size: 0.85rem;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .card ul li {
+      position: relative;
+      padding-left: 1rem;
+      margin-bottom: 0.35rem;
+    }
+
+    .card ul li::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      color: var(--soft);
+    }
+
+    footer {
+      margin-top: 3rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--rule);
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      font-family: 'Geist Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--soft);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <header>
+      <p class="eyebrow">Architecture & Data Flow</p>
+      <h1>YouTube Network Traffic Monitor Sidecar</h1>
+      <p class="subtitle">Real-time passive packet sniffing, TLS SNI extraction, and dynamic webhook throttling for Speedrr.</p>
+    </header>
+
+    <div class="diagram-wrapper">
+      <svg role="img" aria-labelledby="ytmon-title ytmon-desc" viewBox="0 0 960 480" width="960" height="480">
+        <title id="ytmon-title">YouTube Network Monitor Architecture Diagram</title>
+        <desc id="ytmon-desc">Architecture showing promiscuous packet capture from local devices, parsing DNS and TLS SNI, state management with cooldown, webhook dispatching, and Speedrr speed adjustments.</desc>
+        
+        <defs>
+          <!-- Arrow Markers -->
+          <marker id="arrow-default" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/>
+          </marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#eb6c36"/>
+          </marker>
+          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill="#2e5aa8"/>
+          </marker>
+        </defs>
+
+        <!-- Canvas Background -->
+        <rect width="100%" height="100%" fill="#f5f5f5"/>
+
+        <!-- ================================================================= -->
+        <!-- ZONES & BOUNDARIES                                                -->
+        <!-- ================================================================= -->
+        
+        <!-- LAN Zone -->
+        <rect x="20" y="40" width="220" height="340" rx="8" fill="rgba(45,49,66,0.02)" stroke="rgba(45,49,66,0.15)" stroke-dasharray="4,4"/>
+        <text x="32" y="60" fill="#7a8399" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.12em">ZONE: LOCAL HOME LAN</text>
+
+        <!-- Sidecar Container Zone -->
+        <rect x="270" y="40" width="390" height="340" rx="8" fill="rgba(235,108,54,0.03)" stroke="rgba(235,108,54,0.30)" stroke-dasharray="4,4"/>
+        <text x="282" y="60" fill="#eb6c36" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.12em">SIDECAR: YOUTUBE MONITOR (HOST NET / CAP_NET_RAW)</text>
+
+        <!-- Speedrr Core Zone -->
+        <rect x="690" y="40" width="250" height="340" rx="8" fill="rgba(46,90,168,0.03)" stroke="rgba(46,90,168,0.25)" stroke-dasharray="4,4"/>
+        <text x="702" y="60" fill="#2e5aa8" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.12em">ZONE: SPEEDRR BANDWIDTH CONTROLLER</text>
+
+        <!-- ================================================================= -->
+        <!-- CONNECTORS (Drawn before boxes)                                   -->
+        <!-- ================================================================= -->
+
+        <!-- Target Devices -> Sniffer Engine -->
+        <path d="M 190 120 L 300 120" stroke="#4f5d75" stroke-width="1.2" fill="none" marker-end="url(#arrow-default)"/>
+        <rect x="215" y="104" width="60" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="245" y="113" fill="#7a8399" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle" letter-spacing="0.06em">PORT 53/443</text>
+
+        <!-- Sniffer Engine -> Parser Engine -->
+        <path d="M 440 120 L 490 120" stroke="#4f5d75" stroke-width="1.2" fill="none" marker-end="url(#arrow-default)"/>
+        <rect x="446" y="104" width="38" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="465" y="113" fill="#7a8399" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle" letter-spacing="0.06em">PAYLOAD</text>
+
+        <!-- Parser -> State Manager (Focal Arrow) -->
+        <path d="M 560 160 L 560 216 Q 560 224 552 224 L 460 224 Q 452 224 452 232 L 452 250" stroke="#eb6c36" stroke-width="1.2" fill="none" marker-end="url(#arrow-accent)"/>
+        <rect x="480" y="216" width="60" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="510" y="225" fill="#eb6c36" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle" letter-spacing="0.06em">MATCH EVENT</text>
+
+        <!-- State Manager -> Webhook Dispatcher -->
+        <path d="M 520 290 L 550 290" stroke="#4f5d75" stroke-width="1.2" fill="none" marker-end="url(#arrow-default)"/>
+
+        <!-- Webhook Dispatcher -> Speedrr Webhook Endpoint -->
+        <path d="M 640 290 L 710 290" stroke="#2e5aa8" stroke-width="1.2" fill="none" marker-end="url(#arrow-link)"/>
+        <rect x="652" y="274" width="46" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="675" y="283" fill="#2e5aa8" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle" letter-spacing="0.06em">HTTP POST</text>
+
+        <!-- Speedrr Engine -> Client Enforcement -->
+        <path d="M 810 250 L 810 170" stroke="#4f5d75" stroke-width="1.2" fill="none" marker-end="url(#arrow-default)"/>
+        <rect x="782" y="196" width="56" height="12" rx="2" fill="#f5f5f5"/>
+        <text x="810" y="205" fill="#7a8399" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle" letter-spacing="0.06em">RPC LIMIT</text>
+
+        <!-- ================================================================= -->
+        <!-- NODES                                                             -->
+        <!-- ================================================================= -->
+
+        <!-- 1. Target LAN Device (Smart TV / Apple TV) -->
+        <rect x="50" y="80" width="140" height="80" rx="6" fill="#f5f5f5"/>
+        <rect x="50" y="80" width="140" height="80" rx="6" fill="rgba(79,93,117,0.08)" stroke="#4f5d75" stroke-width="1"/>
+        <rect x="58" y="88" width="34" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.4)" stroke-width="0.8"/>
+        <text x="75" y="97" fill="#4f5d75" font-family="'Geist Mono', monospace" font-size="7" text-anchor="middle" letter-spacing="0.08em">TARGET</text>
+        <text x="120" y="122" fill="#2d3142" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Smart TV / AppleTV</text>
+        <text x="120" y="140" fill="#7a8399" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">192.168.1.50</text>
+
+        <!-- 2. Local DNS/Gateway -->
+        <rect x="50" y="250" width="140" height="80" rx="6" fill="#f5f5f5"/>
+        <rect x="50" y="250" width="140" height="80" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+        <rect x="58" y="258" width="40" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.4)" stroke-width="0.8"/>
+        <text x="78" y="267" fill="#4f5d75" font-family="'Geist Mono', monospace" font-size="7" text-anchor="middle" letter-spacing="0.08em">GATEWAY</text>
+        <text x="120" y="292" fill="#2d3142" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Home Gateway</text>
+        <text x="120" y="310" fill="#7a8399" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">DNS :53 / Gateway</text>
+
+        <!-- 3. PCAP Sniffer Engine (Sidecar) -->
+        <rect x="300" y="80" width="140" height="80" rx="6" fill="#f5f5f5"/>
+        <rect x="300" y="80" width="140" height="80" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="308" y="88" width="28" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+        <text x="322" y="97" fill="#2d3142" font-family="'Geist Mono', monospace" font-size="7" text-anchor="middle" letter-spacing="0.08em">PCAP</text>
+        <text x="370" y="122" fill="#2d3142" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">BPF Sniffer</text>
+        <text x="370" y="140" fill="#7a8399" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">gopacket/pcap (promisc)</text>
+
+        <!-- 4. SNI & DNS Parser (FOCAL NODE) -->
+        <rect x="490" y="80" width="150" height="80" rx="6" fill="#f5f5f5"/>
+        <rect x="490" y="80" width="150" height="80" rx="6" fill="rgba(235,108,54,0.08)" stroke="#eb6c36" stroke-width="1.2"/>
+        <rect x="498" y="88" width="34" height="12" rx="2" fill="transparent" stroke="rgba(235,108,54,0.5)" stroke-width="0.8"/>
+        <text x="515" y="97" fill="#eb6c36" font-family="'Geist Mono', monospace" font-size="7" text-anchor="middle" letter-spacing="0.08em">PARSER</text>
+        <text x="565" y="122" fill="#2d3142" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">TLS SNI / DNS Filter</text>
+        <text x="565" y="140" fill="#eb6c36" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">googlevideo / youtube</text>
+
+        <!-- 5. State & Debounce Manager -->
+        <rect x="380" y="250" width="140" height="80" rx="6" fill="#f5f5f5"/>
+        <rect x="380" y="250" width="140" height="80" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="388" y="258" width="30" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+        <text x="403" y="267" fill="#2d3142" font-family="'Geist Mono', monospace" font-size="7" text-anchor="middle" letter-spacing="0.08em">STATE</text>
+        <text x="450" y="292" fill="#2d3142" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Debounce Manager</text>
+        <text x="450" y="310" fill="#7a8399" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">30s Cooldown Timer</text>
+
+        <!-- 6. Webhook Dispatcher -->
+        <rect x="550" y="250" width="90" height="80" rx="6" fill="#f5f5f5"/>
+        <rect x="550" y="250" width="90" height="80" rx="6" fill="rgba(46,90,168,0.06)" stroke="#2e5aa8" stroke-width="1"/>
+        <rect x="558" y="258" width="28" height="12" rx="2" fill="transparent" stroke="rgba(46,90,168,0.4)" stroke-width="0.8"/>
+        <text x="572" y="267" fill="#2e5aa8" font-family="'Geist Mono', monospace" font-size="7" text-anchor="middle" letter-spacing="0.08em">HOOK</text>
+        <text x="595" y="292" fill="#2d3142" font-family="'Geist', sans-serif" font-size="11" font-weight="600" text-anchor="middle">Dispatcher</text>
+        <text x="595" y="310" fill="#7a8399" font-family="'Geist Mono', monospace" font-size="8" text-anchor="middle">HTTP Client</text>
+
+        <!-- 7. Speedrr Webhook Handler -->
+        <rect x="710" y="250" width="210" height="80" rx="6" fill="#f5f5f5"/>
+        <rect x="710" y="250" width="210" height="80" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <rect x="718" y="258" width="40" height="12" rx="2" fill="transparent" stroke="rgba(45,49,66,0.4)" stroke-width="0.8"/>
+        <text x="738" y="267" fill="#2d3142" font-family="'Geist Mono', monospace" font-size="7" text-anchor="middle" letter-spacing="0.08em">SPEEDRR</text>
+        <text x="815" y="292" fill="#2d3142" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Speed Evaluator</text>
+        <text x="815" y="310" fill="#7a8399" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">/api/v1/webhook/stream</text>
+
+        <!-- 8. Torrent Clients -->
+        <rect x="710" y="80" width="210" height="90" rx="6" fill="#f5f5f5"/>
+        <rect x="710" y="80" width="210" height="90" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75" stroke-width="1"/>
+        <rect x="718" y="88" width="34" height="12" rx="2" fill="transparent" stroke="rgba(79,93,117,0.4)" stroke-width="0.8"/>
+        <text x="735" y="97" fill="#4f5d75" font-family="'Geist Mono', monospace" font-size="7" text-anchor="middle" letter-spacing="0.08em">CLIENT</text>
+        <text x="815" y="122" fill="#2d3142" font-family="'Geist', sans-serif" font-size="12" font-weight="600" text-anchor="middle">Torrent Clients</text>
+        <text x="815" y="140" fill="#7a8399" font-family="'Geist Mono', monospace" font-size="9" text-anchor="middle">qBittorrent / Transmission</text>
+
+        <!-- ================================================================= -->
+        <!-- LEGEND                                                            -->
+        <!-- ================================================================= -->
+        <line x1="30" y1="420" x2="930" y2="420" stroke="rgba(45,49,66,0.12)" stroke-width="0.8"/>
+        <text x="30" y="445" fill="#4f5d75" font-family="'Geist Mono', monospace" font-size="8" letter-spacing="0.14em">LEGEND</text>
+
+        <!-- Legend Item 1: Focal -->
+        <rect x="110" y="437" width="12" height="12" rx="2" fill="rgba(235,108,54,0.1)" stroke="#eb6c36" stroke-width="1"/>
+        <text x="130" y="446" fill="#4f5d75" font-family="'Geist Mono', monospace" font-size="8">Focal SNI Parser</text>
+
+        <!-- Legend Item 2: Core Processing -->
+        <rect x="270" y="437" width="12" height="12" rx="2" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
+        <text x="290" y="446" fill="#4f5d75" font-family="'Geist Mono', monospace" font-size="8">Core Processing</text>
+
+        <!-- Legend Item 3: External / Target -->
+        <rect x="420" y="437" width="12" height="12" rx="2" fill="rgba(79,93,117,0.1)" stroke="#4f5d75" stroke-width="1"/>
+        <text x="440" y="446" fill="#4f5d75" font-family="'Geist Mono', monospace" font-size="8">LAN Device / Gateway</text>
+
+        <!-- Legend Item 4: Webhook Link -->
+        <line x1="600" y1="443" x2="620" y2="443" stroke="#2e5aa8" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+        <text x="630" y="446" fill="#4f5d75" font-family="'Geist Mono', monospace" font-size="8">REST / Webhook Call</text>
+
+        <!-- Legend Item 5: Internal Event -->
+        <line x1="780" y1="443" x2="800" y2="443" stroke="#eb6c36" stroke-width="1.2" marker-end="url(#arrow-accent)"/>
+        <text x="810" y="446" fill="#4f5d75" font-family="'Geist Mono', monospace" font-size="8">Detection Trigger</text>
+      </svg>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="cards-grid">
+      <div class="card">
+        <p class="eyebrow">PACKET CAPTURE</p>
+        <div class="card-header">
+          <span class="card-dot coral"></span>
+          <h3>Zero-Alloc SNI Parsing</h3>
+        </div>
+        <ul>
+          <li>Linux kernel BPF filter limits processing strictly to target IPs and ports 53/443.</li>
+          <li>Byte-offset TLS Client Hello parser extracts domain names without regexp memory allocations.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <p class="eyebrow">STABILITY</p>
+        <div class="card-header">
+          <span class="card-dot dark"></span>
+          <h3>Debounce & Cooldown</h3>
+        </div>
+        <ul>
+          <li>Thread-safe <code>sync.Mutex</code> protects state transitions between ACTIVE and IDLE.</li>
+          <li>Configurable cooldown timer (e.g. 30s) prevents rate-limit flapping during video buffering.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <p class="eyebrow">SPEEDRR INTEGRATION</p>
+        <div class="card-header">
+          <span class="card-dot blue"></span>
+          <h3>Automated Enforcement</h3>
+        </div>
+        <ul>
+          <li>Asynchronous JSON webhook dispatches instantly to Speedrr's webhook receiver.</li>
+          <li>Automatically throttles torrent client upload speeds to maintain buffer-free streaming.</li>
+        </ul>
+      </div>
+    </div>
+
+    <footer>
+      <span>SPEEDRR SIDECAR ARCHITECTURE</span>
+      <span>GOOGLE DEEPMIND ADVANCED AGENTIC CODING</span>
+    </footer>
+  </div>
+
+</body>
+</html>

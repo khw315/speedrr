@@ -1,0 +1,91 @@
+package main
+
+import (
+	"testing"
+)
+
+func TestIsYouTubeTraffic(t *testing.T) {
+	tests := []struct {
+		name     string
+		domain   string
+		expected bool
+	}{
+		{"YouTube Web", "www.youtube.com", true},
+		{"Google Video CDN", "rr1---sn-4g5ednld.googlevideo.com", true},
+		{"YouTube Images CDN", "i.ytimg.com", true},
+		{"Google Video direct", "video.google.com", true},
+		{"Shortened URL", "youtu.be", true},
+		{"Google Search", "www.google.com", false},
+		{"Netflix CDN", "ipv4-c001-sin001-netflix.com", false},
+		{"Local Hostname", "pve.lan", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isYouTubeTraffic(tt.domain)
+			if got != tt.expected {
+				t.Errorf("isYouTubeTraffic(%q) = %v, expected %v", tt.domain, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestExtractTLSClientHelloSNI(t *testing.T) {
+	// Sample TLS 1.2 Client Hello payload with SNI = "rr1---sn-4g5ednld.googlevideo.com"
+	sniDomain := "rr1---sn-4g5ednld.googlevideo.com"
+	sniBytes := []byte(sniDomain)
+
+	// Build raw TLS Client Hello packet
+	var payload []byte
+	payload = append(payload, 0x16)       // ContentType: Handshake
+	payload = append(payload, 0x03, 0x01) // TLS 1.0 record version
+	payload = append(payload, 0x00, 0x00) // Dummy record length (filled later)
+	payload = append(payload, 0x01)       // Handshake Type: Client Hello
+	payload = append(payload, 0x00, 0x00, 0x00) // Dummy handshake length
+	payload = append(payload, 0x03, 0x03) // Client version: TLS 1.2
+
+	// Random 32 bytes
+	payload = append(payload, make([]byte, 32)...)
+
+	// Session ID length 0
+	payload = append(payload, 0x00)
+
+	// Cipher suites (length 2 + 2 bytes suite)
+	payload = append(payload, 0x00, 0x02, 0xc0, 0x2f)
+
+	// Compression methods (length 1 + 1 byte null compression)
+	payload = append(payload, 0x01, 0x00)
+
+	// Extensions block
+	var extBlock []byte
+	// Extension SNI: Type 0x0000
+	extBlock = append(extBlock, 0x00, 0x00)
+
+	var sniExtContent []byte
+	// ServerNameList length
+	listLen := len(sniBytes) + 3
+	sniExtContent = append(sniExtContent, byte(listLen>>8), byte(listLen&0xff))
+	// NameType: 0 (hostname)
+	sniExtContent = append(sniExtContent, 0x00)
+	// Hostname length
+	nameLen := len(sniBytes)
+	sniExtContent = append(sniExtContent, byte(nameLen>>8), byte(nameLen&0xff))
+	sniExtContent = append(sniExtContent, sniBytes...)
+
+	// SNI Extension length
+	extBlock = append(extBlock, byte(len(sniExtContent)>>8), byte(len(sniExtContent)&0xff))
+	extBlock = append(extBlock, sniExtContent...)
+
+	// Append extensions total length
+	payload = append(payload, byte(len(extBlock)>>8), byte(len(extBlock)&0xff))
+	payload = append(payload, extBlock...)
+
+	extractedSNI, ok := extractTLSClientHelloSNI(payload)
+	if !ok {
+		t.Fatalf("extractTLSClientHelloSNI gagal mengekstrak SNI")
+	}
+
+	if extractedSNI != sniDomain {
+		t.Errorf("extracted SNI = %s, expected %s", extractedSNI, sniDomain)
+	}
+}
