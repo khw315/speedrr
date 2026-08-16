@@ -1,9 +1,9 @@
 # ==============================================================================
-# STAGE 1: Builder dengan CGO & Libpcap
+# STAGE 1: Builder with CGO & Libpcap
 # ==============================================================================
 FROM golang:1.23-alpine AS builder
 
-# Pasang compiler toolchain & header libpcap secara terurut alfabetis
+# Install compiler toolchain & libpcap headers sorted alphabetically
 RUN apk add --no-cache \
     gcc \
     git \
@@ -12,14 +12,14 @@ RUN apk add --no-cache \
 
 WORKDIR /app
 
-# Cache layer dependensi
+# Cache dependency layer
 COPY go.mod go.sum* ./
 RUN go mod download
 
-# Salin source code
+# Copy source code
 COPY . .
 
-# Kompilasi Go binary dengan CGO aktif untuk libpcap
+# Compile Go binary with CGO enabled for libpcap
 RUN CGO_ENABLED=1 GOOS=linux go build -ldflags="-w -s" -o speedrr-ytmon .
 
 # ==============================================================================
@@ -30,7 +30,7 @@ FROM alpine:3.20
 LABEL org.opencontainers.image.title="Speedrr YouTube Monitor Sidecar"
 LABEL org.opencontainers.image.description="Promiscuous packet capture & TLS SNI parser to track YouTube streaming on Home Lab LAN"
 
-# Pasang runtime packages terurut alfabetis
+# Install runtime packages sorted alphabetically
 RUN apk add --no-cache \
     ca-certificates \
     libcap \
@@ -41,15 +41,16 @@ RUN apk add --no-cache \
 
 WORKDIR /app
 
-# Salin hasil kompilasi binary dari stage builder
+# Copy compiled binary from builder stage
 COPY --from=builder /app/speedrr-ytmon /usr/local/bin/speedrr-ytmon
 
-# Berikan Linux capability cap_net_raw & cap_net_admin agar binary bisa dijalankan oleh non-root user
+# Grant Linux capabilities cap_net_raw & cap_net_admin to allow non-root packet capture
 RUN setcap 'cap_net_raw,cap_net_admin=+ep' /usr/local/bin/speedrr-ytmon
 
-# Environment default
+# Default environment variables
 ENV MONITOR_INTERFACE=eth0 \
-    TARGET_IPS=192.168.1.50 \
+    TARGET_IPS="" \
+    TARGET_SUBNETS="" \
     WEBHOOK_URL=http://127.0.0.1:8080/api/v1/webhook/stream \
     COOLDOWN_SECONDS=30 \
     PROMISCUOUS=true \

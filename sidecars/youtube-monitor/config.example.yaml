@@ -2,32 +2,32 @@
 # YouTube Network Traffic Monitor Configuration
 # ==============================================================================
 
-# Interface jaringan fisik host (e.g. eth0, br0, enp3s0, bond0)
+# Physical host network interface (e.g. eth0, br0, enp3s0, bond0)
 interface: "eth0"
 
-# Daftar IP perangkat target di LAN yang dipantau (opsional jika target_subnets diisi)
+# Specific target IP addresses in LAN to monitor (optional if target_subnets is set)
 target_ips:
-  - "192.168.1.50" # Contoh: Apple TV / Android TV
-  - "192.168.1.51" # Contoh: Smart TV Ruang Tamu
+  - "192.168.1.50" # Example: Apple TV / Android TV
+  - "192.168.1.51" # Example: Living Room Smart TV
 
-# Daftar Subnet / CIDR di LAN yang dipantau seluruh perangkatnya
+# Subnet / CIDR ranges in LAN to monitor all active devices
 target_subnets:
-  - "192.168.1.0/24" # Contoh: Seluruh subnet LAN IoT / Rumah
-  - "10.0.10.0/24"   # Contoh: Subnet VLAN Entertainment
+  - "192.168.1.0/24" # Example: Home IoT / LAN subnet
+  - "10.0.10.0/24"   # Example: Entertainment VLAN subnet
 
-# Gateway atau DNS IP (opsional)
+# Gateway or DNS IP (optional)
 gateway_ip: "192.168.1.1"
 
-# Webhook tujuan untuk notifikasi perubahan status
+# Webhook endpoint for streaming status notifications
 webhook_url: "http://127.0.0.1:8080/api/v1/webhook/stream"
 
-# Cooldown timeout (dalam detik): durasi jeda sebelum status kembali menjadi IDLE
+# Cooldown timeout (in seconds): debounce idle duration before state returns to IDLE
 cooldown_seconds: 30
 
-# Mode promiscuous pcap
+# PCAP promiscuous mode
 promiscuous: true
 
-# Snapshot length paket
+# Packet snapshot length
 snaplen: 65535
 
 # Debug mode logging

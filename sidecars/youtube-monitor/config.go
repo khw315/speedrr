@@ -10,20 +10,20 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Config merepresentasikan konfigurasi YouTube Network Traffic Monitor
+// Config represents the runtime configuration for the YouTube Network Traffic Monitor.
 type Config struct {
-	Interface       string        `yaml:"interface"`        // Interface jaringan fisik host (e.g. "eth0", "en0", "br0")
-	TargetIPs       []string      `yaml:"target_ips"`       // IP perangkat yang dipantau (e.g. "192.168.1.50")
-	TargetSubnets   []string      `yaml:"target_subnets"`   // Subnet/CIDR yang dipantau (e.g. "192.168.1.0/24", "10.0.0.0/16")
-	GatewayIP       string        `yaml:"gateway_ip"`       // IP Gateway/Router (opsional)
-	WebhookURL      string        `yaml:"webhook_url"`      // URL webhook tujuan (Speedrr / Generic Webhook)
-	CooldownTimeout time.Duration `yaml:"cooldown_seconds"` // Cooldown timeout sebelum state kembali IDLE
-	Promiscuous     bool          `yaml:"promiscuous"`      // Mode promiscuous PCAP
-	SnapLen         int32         `yaml:"snaplen"`          // Panjang snapshot paket dalam bytes
-	Debug           bool          `yaml:"debug"`            // Logging verbose
+	Interface       string        `yaml:"interface"`        // Host physical network interface (e.g. "eth0", "en0", "br0")
+	TargetIPs       []string      `yaml:"target_ips"`       // Specific target IP addresses (e.g. "192.168.1.50")
+	TargetSubnets   []string      `yaml:"target_subnets"`   // Subnet/CIDR ranges to monitor (e.g. "192.168.1.0/24", "10.0.0.0/16")
+	GatewayIP       string        `yaml:"gateway_ip"`       // Gateway / Router IP address (optional)
+	WebhookURL      string        `yaml:"webhook_url"`      // Destination webhook URL (Speedrr / generic receiver)
+	CooldownTimeout time.Duration `yaml:"cooldown_seconds"` // Cooldown timeout duration before state returns to IDLE
+	Promiscuous     bool          `yaml:"promiscuous"`      // Enable promiscuous mode on PCAP interface
+	SnapLen         int32         `yaml:"snaplen"`          // Packet snapshot length in bytes
+	Debug           bool          `yaml:"debug"`            // Verbose logging mode
 }
 
-// DefaultConfig menghasilkan konfigurasi default aman tanpa hardcoded IP
+// DefaultConfig returns safe default configuration without hardcoded IPs.
 func DefaultConfig() *Config {
 	return &Config{
 		Interface:       "eth0",
@@ -38,7 +38,7 @@ func DefaultConfig() *Config {
 	}
 }
 
-// GetAllTargets menggabungkan target IP tunggal dan subnet CIDR
+// GetAllTargets merges individual target IPs and subnet CIDR strings.
 func (c *Config) GetAllTargets() []string {
 	var targets []string
 	targets = append(targets, c.TargetIPs...)
@@ -46,26 +46,26 @@ func (c *Config) GetAllTargets() []string {
 	return targets
 }
 
-// LoadConfig memuat konfigurasi dari file YAML dan/atau environment variables
+// LoadConfig loads configuration from a YAML file with environment variable overrides.
 func LoadConfig(filePath string) (*Config, error) {
 	cfg := DefaultConfig()
 
-	// 1. Coba baca dari file YAML jika tersedia
+	// 1. Read from YAML file if available
 	if filePath != "" {
 		if data, err := os.ReadFile(filePath); err == nil {
 			if err := yaml.Unmarshal(data, cfg); err != nil {
-				return nil, fmt.Errorf("gagal parsing YAML: %w", err)
+				return nil, fmt.Errorf("failed to parse YAML configuration: %w", err)
 			}
 		}
 	}
 
-	// 2. Override konfigurasi dari environment variables
+	// 2. Apply environment variable overrides
 	applyEnvOverrides(cfg)
 
 	return cfg, nil
 }
 
-// applyEnvOverrides memetakan variabel lingkungan ke struct konfigurasi
+// applyEnvOverrides maps environment variables to configuration fields.
 func applyEnvOverrides(cfg *Config) {
 	applyStringEnv("MONITOR_INTERFACE", &cfg.Interface)
 	applyStringEnv("GATEWAY_IP", &cfg.GatewayIP)

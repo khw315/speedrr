@@ -21,7 +21,7 @@ import (
 	"github.com/google/gopacket/pcap"
 )
 
-// StreamState status pemutaran media
+// StreamState represents the current state of streaming playback.
 type StreamState string
 
 const (
@@ -29,20 +29,20 @@ const (
 	StateActive StreamState = "ACTIVE"
 )
 
-// WebhookPayload struktur payload JSON yang dikirimkan ke endpoint Speedrr
+// WebhookPayload represents the JSON payload dispatched to the Speedrr webhook endpoint.
 type WebhookPayload struct {
-	Event         string    `json:"event"`               // "stream_started", "stream_stopped", "stream_update"
-	State         string    `json:"state"`               // "ACTIVE" atau "IDLE"
+	Event         string    `json:"event"`               // "stream_started", "stream_stopped", or "stream_update"
+	State         string    `json:"state"`               // "ACTIVE" or "IDLE"
 	Service       string    `json:"service"`             // "youtube"
-	TargetIP      string    `json:"target_ip"`           // IP perangkat spesifik yang memicu event
-	ActiveClients []string  `json:"active_clients"`      // Daftar semua IP di subnet yang sedang aktif streaming
-	ActiveCount   int       `json:"active_stream_count"` // Total stream aktif di subnet
-	Matched       string    `json:"matched"`             // SNI atau Domain DNS yang tertangkap
-	Protocol      string    `json:"protocol"`            // "TLS" atau "DNS"
+	TargetIP      string    `json:"target_ip"`           // Client IP triggering the event
+	ActiveClients []string  `json:"active_clients"`      // List of all active streaming client IPs in the subnet
+	ActiveCount   int       `json:"active_stream_count"` // Total number of active streams in the subnet
+	Matched       string    `json:"matched"`             // Matched SNI or DNS domain query
+	Protocol      string    `json:"protocol"`            // "TLS" or "DNS"
 	Timestamp     time.Time `json:"timestamp"`
 }
 
-// StateManager mengelola state streaming secara thread-safe untuk multiple client/subnet
+// StateManager manages thread-safe streaming states and debounce cooldown timers for multiple clients/subnets.
 type StateManager struct {
 	mu            sync.Mutex
 	currentState  StreamState
@@ -52,7 +52,7 @@ type StateManager struct {
 	httpClient    *http.Client
 }
 
-// NewStateManager inisialisasi state manager
+// NewStateManager creates a new StateManager instance.
 func NewStateManager(webhookURL string, cooldown time.Duration) *StateManager {
 	return &StateManager{
 		currentState:  StateIdle,
@@ -65,7 +65,7 @@ func NewStateManager(webhookURL string, cooldown time.Duration) *StateManager {
 	}
 }
 
-// OnActivityDetected menangani deteksi paket streaming baru dari IP klien tertentu
+// OnActivityDetected processes detected streaming activity from a specific client IP.
 func (sm *StateManager) OnActivityDetected(clientIP, matchedDetail, protocol string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -93,12 +93,11 @@ func (sm *StateManager) handleClientJoin(clientIP, matchedDetail, protocol strin
 	event := "stream_update"
 	if isInitialActive {
 		event = "stream_started"
-		log.Printf("[STATE-TRANSITION] IDLE -> ACTIVE (Klien: %s | Pemicu: %s via %s)", clientIP, matchedDetail, protocol)
+		log.Printf("[STATE-TRANSITION] IDLE -> ACTIVE (Client: %s | Trigger: %s via %s)", clientIP, matchedDetail, protocol)
 	} else {
-		log.Printf("[STATE-UPDATE] Klien baru aktif: %s (Total aktif: %d)", clientIP, len(sm.activeClients)+1)
+		log.Printf("[STATE-UPDATE] New active client: %s (Total active: %d)", clientIP, len(sm.activeClients)+1)
 	}
 
-	// Buat snapshot list active clients
 	activeList := sm.getActiveClientListWith(clientIP)
 	sm.dispatchWebhook(event, StateActive, clientIP, activeList, len(activeList), matchedDetail, protocol)
 }
@@ -108,17 +107,17 @@ func (sm *StateManager) handleClientTimeout(clientIP string) {
 	defer sm.mu.Unlock()
 
 	delete(sm.activeClients, clientIP)
-	log.Printf("[COOLDOWN-TIMEOUT] Klien %s selesai streaming.", clientIP)
+	log.Printf("[COOLDOWN-TIMEOUT] Client %s finished streaming.", clientIP)
 
 	activeList := sm.getActiveClientList()
 	activeCount := len(activeList)
 
 	if activeCount == 0 {
 		sm.currentState = StateIdle
-		log.Printf("[STATE-TRANSITION] ACTIVE -> IDLE (Seluruh klien di subnet telah IDLE)")
+		log.Printf("[STATE-TRANSITION] ACTIVE -> IDLE (All clients in subnet are now idle)")
 		sm.dispatchWebhook("stream_stopped", StateIdle, clientIP, activeList, 0, "cooldown_timeout", "SYSTEM")
 	} else {
-		log.Printf("[STATE-UPDATE] Sisa klien aktif di subnet: %v (Total: %d)", activeList, activeCount)
+		log.Printf("[STATE-UPDATE] Remaining active clients: %v (Total: %d)", activeList, activeCount)
 		sm.dispatchWebhook("stream_update", StateActive, clientIP, activeList, activeCount, "client_expired", "SYSTEM")
 	}
 }
@@ -147,7 +146,7 @@ func (sm *StateManager) getActiveClientListWith(extraIP string) []string {
 	return list
 }
 
-// dispatchWebhook mengirimkan notifikasi HTTP POST JSON secara asynchronous
+// dispatchWebhook asynchronously dispatches the JSON webhook payload.
 func (sm *StateManager) dispatchWebhook(event string, state StreamState, targetIP string, activeClients []string, activeCount int, matched, protocol string) {
 	if sm.webhookURL == "" {
 		return
@@ -171,7 +170,7 @@ func (sm *StateManager) dispatchWebhook(event string, state StreamState, targetI
 func (sm *StateManager) sendWebhookRequest(url string, p WebhookPayload) {
 	body, err := json.Marshal(p)
 	if err != nil {
-		log.Printf("[WEBHOOK-ERR] Gagal marshal payload: %v", err)
+		log.Printf("[WEBHOOK-ERR] Failed to marshal payload: %v", err)
 		return
 	}
 
@@ -180,7 +179,7 @@ func (sm *StateManager) sendWebhookRequest(url string, p WebhookPayload) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
 	if err != nil {
-		log.Printf("[WEBHOOK-ERR] Gagal membuat HTTP request: %v", err)
+		log.Printf("[WEBHOOK-ERR] Failed to construct HTTP request: %v", err)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -188,7 +187,7 @@ func (sm *StateManager) sendWebhookRequest(url string, p WebhookPayload) {
 
 	resp, err := sm.httpClient.Do(req)
 	if err != nil {
-		log.Printf("[WEBHOOK-ERR] Gagal mengirim ke %s: %v", url, err)
+		log.Printf("[WEBHOOK-ERR] Failed to dispatch webhook to %s: %v", url, err)
 		return
 	}
 	defer resp.Body.Close()
@@ -196,7 +195,7 @@ func (sm *StateManager) sendWebhookRequest(url string, p WebhookPayload) {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		log.Printf("[WEBHOOK-SUCCESS] %s (Client: %s, Streams: %d) -> %s (HTTP %d)", p.Event, p.TargetIP, p.ActiveCount, url, resp.StatusCode)
 	} else {
-		log.Printf("[WEBHOOK-WARN] Endpoint merespons status: %s", resp.Status)
+		log.Printf("[WEBHOOK-WARN] Endpoint responded with status: %s", resp.Status)
 	}
 }
 
@@ -204,6 +203,19 @@ func (sm *StateManager) sendWebhookRequest(url string, p WebhookPayload) {
 // TLS CLIENT HELLO SNI PARSER (Zero-allocation Byte Offset Extraction)
 // ============================================================================
 
+// extractTLSClientHelloSNI parses TLS Client Hello records to extract Server Name Indication (SNI).
+// Packet Layout:
+// [0]       : Content Type (0x16 = Handshake)
+// [1..2]    : TLS Version
+// [3..4]    : Record Length
+// [5]       : Handshake Type (0x01 = Client Hello)
+// [6..8]    : Handshake Length
+// [9..10]   : Client Version
+// [11..42]  : Client Random (32 bytes)
+// [43]      : Session ID Length (L) -> Skip L bytes
+// [44+L..]  : Cipher Suites Length -> Skip
+// [...]     : Compression Methods Length -> Skip
+// [...]     : Extensions Length -> Iterate searching for Type 0x0000 (SNI)
 func extractTLSClientHelloSNI(payload []byte) (string, bool) {
 	if !isTLSClientHello(payload) {
 		return "", false
@@ -222,7 +234,7 @@ func isTLSClientHello(payload []byte) bool {
 }
 
 func skipClientHelloHeader(payload []byte) (int, bool) {
-	offset := 43
+	offset := 43 // Skip Record Header (5) + Handshake Type & Len (4) + Version (2) + Random (32)
 
 	if offset >= len(payload) {
 		return 0, false
@@ -287,6 +299,7 @@ func parseSNIBlock(sniBlock []byte) (string, bool) {
 	return "", false
 }
 
+// isYouTubeTraffic determines whether the domain/SNI matches YouTube or GoogleVideo streaming services.
 func isYouTubeTraffic(domain string) bool {
 	domain = strings.ToLower(domain)
 	targetPatterns := []string{
@@ -306,7 +319,7 @@ func isYouTubeTraffic(domain string) bool {
 	return false
 }
 
-// extractSourceIP mengambil IP address pengirim (klien lokal) dari paket
+// extractSourceIP retrieves the client source IP address from the IPv4/IPv6 packet header.
 func extractSourceIP(packet gopacket.Packet) string {
 	if ipLayer := packet.Layer(layers.LayerTypeIPv4); ipLayer != nil {
 		if ip, ok := ipLayer.(*layers.IPv4); ok {
@@ -333,7 +346,7 @@ func initAppConfig() *Config {
 
 	cfg, err := LoadConfig(configPath)
 	if err != nil {
-		log.Fatalf("[FATAL] Gagal membaca konfigurasi: %v", err)
+		log.Fatalf("[FATAL] Failed to load configuration: %v", err)
 	}
 
 	log.Printf("[CONFIG] Interface      : %s", cfg.Interface)
@@ -349,7 +362,7 @@ func initAppConfig() *Config {
 func openPCAPHandle(cfg *Config) *pcap.Handle {
 	handle, err := pcap.OpenLive(cfg.Interface, cfg.SnapLen, cfg.Promiscuous, pcap.BlockForever)
 	if err != nil {
-		log.Fatalf("[FATAL] Gagal membuka interface '%s': %v\n(Perlu privilege root / CAP_NET_RAW)", cfg.Interface, err)
+		log.Fatalf("[FATAL] Failed to open PCAP interface '%s': %v\n(Requires root privileges or CAP_NET_RAW capability)", cfg.Interface, err)
 	}
 	return handle
 }
@@ -375,9 +388,9 @@ func buildBPFFilter(targets []string) string {
 func applyBPFFilter(handle *pcap.Handle, targets []string) {
 	bpfFilter := buildBPFFilter(targets)
 	if err := handle.SetBPFFilter(bpfFilter); err != nil {
-		log.Fatalf("[FATAL] Gagal memasang BPF Filter '%s': %v", bpfFilter, err)
+		log.Fatalf("[FATAL] Failed to compile/set BPF Filter '%s': %v", bpfFilter, err)
 	}
-	log.Printf("[BPF] Filter aktif di kernel: %s", bpfFilter)
+	log.Printf("[BPF] Active kernel filter: %s", bpfFilter)
 }
 
 func processPacketStream(packetSource *gopacket.PacketSource, cfg *Config, stateMgr *StateManager) {
@@ -392,13 +405,13 @@ func processPacketStream(packetSource *gopacket.PacketSource, cfg *Config, state
 func processPacket(packet gopacket.Packet, cfg *Config, stateMgr *StateManager) {
 	clientIP := extractSourceIP(packet)
 
-	// 1. Deteksi DNS Query (UDP 53)
+	// 1. Detect DNS Query (UDP 53)
 	if dnsLayer := packet.Layer(layers.LayerTypeDNS); dnsLayer != nil {
 		handleDNSPacket(dnsLayer, clientIP, cfg, stateMgr)
 		return
 	}
 
-	// 2. Deteksi TLS Client Hello SNI (TCP 443)
+	// 2. Detect TLS Client Hello SNI (TCP 443)
 	if tcpLayer := packet.Layer(layers.LayerTypeTCP); tcpLayer != nil {
 		handleTCPPacket(tcpLayer, clientIP, stateMgr)
 	}
@@ -414,7 +427,7 @@ func handleDNSPacket(dnsLayer gopacket.Layer, clientIP string, cfg *Config, stat
 		domain := string(q.Name)
 		if isYouTubeTraffic(domain) {
 			if cfg.Debug {
-				log.Printf("[DNS-MATCH] Klien %s Query: %s", clientIP, domain)
+				log.Printf("[DNS-MATCH] Client %s Query: %s", clientIP, domain)
 			}
 			stateMgr.OnActivityDetected(clientIP, domain, "DNS")
 		}
@@ -429,7 +442,7 @@ func handleTCPPacket(tcpLayer gopacket.Layer, clientIP string, stateMgr *StateMa
 
 	sni, ok := extractTLSClientHelloSNI(tcp.Payload)
 	if ok && isYouTubeTraffic(sni) {
-		log.Printf("[TLS-MATCH] Klien %s SNI: %s", clientIP, sni)
+		log.Printf("[TLS-MATCH] Client %s SNI: %s", clientIP, sni)
 		stateMgr.OnActivityDetected(clientIP, sni, "TLS")
 	}
 }
@@ -438,7 +451,7 @@ func waitForShutdown() {
 	shutdownChan := make(chan os.Signal, 1)
 	signal.Notify(shutdownChan, os.Interrupt, syscall.SIGTERM)
 	sig := <-shutdownChan
-	log.Printf("[SHUTDOWN] Sinyal %v diterima.", sig)
+	log.Printf("[SHUTDOWN] Signal %v received.", sig)
 }
 
 // ============================================================================
@@ -461,9 +474,9 @@ func main() {
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 	packetSource.NoCopy = true
 
-	log.Println("[INFO] Memulai loop penangkapan paket real-time...")
+	log.Println("[INFO] Starting real-time packet capture loop...")
 	go processPacketStream(packetSource, cfg, stateMgr)
 
 	waitForShutdown()
-	log.Println("[SHUTDOWN] Monitor berhasil dimatikan dengan aman.")
+	log.Println("[SHUTDOWN] Network monitor shut down cleanly.")
 }
