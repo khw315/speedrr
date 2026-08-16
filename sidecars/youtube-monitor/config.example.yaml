@@ -1,0 +1,34 @@
+# ==============================================================================
+# YouTube Network Traffic Monitor Configuration
+# ==============================================================================
+
+# Physical host network interface (e.g. eth0, br0, enp3s0, bond0)
+interface: "eth0"
+
+# Specific target IP addresses in LAN to monitor (optional if target_subnets is set)
+target_ips:
+  - "192.168.1.50" # Example: Apple TV / Android TV
+  - "192.168.1.51" # Example: Living Room Smart TV
+
+# Subnet / CIDR ranges in LAN to monitor all active devices
+target_subnets:
+  - "192.168.1.0/24" # Example: Home IoT / LAN subnet
+  - "10.0.10.0/24"   # Example: Entertainment VLAN subnet
+
+# Gateway or DNS IP (optional)
+gateway_ip: "192.168.1.1"
+
+# Webhook endpoint for streaming status notifications
+webhook_url: "http://127.0.0.1:8080/api/v1/webhook/stream"
+
+# Cooldown timeout (in seconds): debounce idle duration before state returns to IDLE
+cooldown_seconds: 30
+
+# PCAP promiscuous mode
+promiscuous: true
+
+# Packet snapshot length
+snaplen: 65535
+
+# Debug mode logging
+debug: false

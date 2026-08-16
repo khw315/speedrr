@@ -53,8 +53,8 @@ func TestGetEnv(t *testing.T) {
 func TestCalculateBaseUploadSpeed(t *testing.T) {
 	cfg := &config.SpeedrrConfig{MaxUpload: 100}
 
-	if speed := calculateBaseUploadSpeed(nil, cfg); speed != 100 {
-		t.Errorf("Expected 100 for nil msModule, got %v", speed)
+	if speed := calculateBaseUploadSpeed(nil, nil, cfg); speed != 100 {
+		t.Errorf("Expected 100 for nil msModule and webhookModule, got %v", speed)
 	}
 
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -76,27 +76,36 @@ func TestCalculateBaseUploadSpeed(t *testing.T) {
 	msMod, _ := module.NewMediaServerModule(appCfg, []config.MediaServerConfig{sCfg}, func() {})
 
 	// Stream count 0 -> unlimited
-	speed := calculateBaseUploadSpeed(msMod, cfg)
+	speed := calculateBaseUploadSpeed(msMod, nil, cfg)
 	if !math.IsInf(speed, 1) {
 		t.Errorf("Expected Inf for stream count 0, got %v", speed)
 	}
 
 	// Set stream count to 1 -> 50% of 100 = 50
 	msMod.SetStreamCount(mockServer.URL, 1)
-	if speed := calculateBaseUploadSpeed(msMod, cfg); speed != 50 {
+	if speed := calculateBaseUploadSpeed(msMod, nil, cfg); speed != 50 {
 		t.Errorf("Expected 50 for stream count 1, got %v", speed)
 	}
 
 	// Set stream count to 2 -> float64(25.0)
 	msMod.SetStreamCount(mockServer.URL, 2)
-	if speed := calculateBaseUploadSpeed(msMod, cfg); speed != 25 {
+	if speed := calculateBaseUploadSpeed(msMod, nil, cfg); speed != 25 {
 		t.Errorf("Expected 25 for stream count 2, got %v", speed)
 	}
 
 	// Set stream count to 3 -> int(10)
 	msMod.SetStreamCount(mockServer.URL, 3)
-	if speed := calculateBaseUploadSpeed(msMod, cfg); speed != 10 {
+	if speed := calculateBaseUploadSpeed(msMod, nil, cfg); speed != 10 {
 		t.Errorf("Expected 10 for stream count 3, got %v", speed)
+	}
+
+	// Test with WebhookModule stream count addition
+	wCfg := &config.WebhookConfig{Enabled: true}
+	whMod := module.NewWebhookModule(appCfg, wCfg, func() {})
+	msMod.SetStreamCount(mockServer.URL, 1) // 1 from plex
+	whMod.SetStreamCount("youtube", 1)      // 1 from youtube sidecar -> total 2 -> 25.0
+	if speed := calculateBaseUploadSpeed(msMod, whMod, cfg); speed != 25 {
+		t.Errorf("Expected 25 for combined streams (1 plex + 1 youtube), got %v", speed)
 	}
 }
 
@@ -151,7 +160,7 @@ func TestCalculateTargetSpeeds(t *testing.T) {
 	schedModule := module.NewScheduleModule(cfg, []config.ScheduleConfig{}, func() {})
 	schedModule.SetReduction(0, 20.0, 30.0)
 
-	up, down := calculateTargetSpeeds(nil, schedModule, cfg)
+	up, down := calculateTargetSpeeds(nil, schedModule, nil, cfg)
 	if up != 80 || down != 70 {
 		t.Errorf("Expected up=80 down=70, got up=%v down=%v", up, down)
 	}

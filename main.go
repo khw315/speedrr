@@ -25,15 +25,7 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-func calculateBaseUploadSpeed(msModule *module.MediaServerModule, cfg *config.SpeedrrConfig) float64 {
-	if msModule == nil {
-		return cfg.MaxUpload
-	}
-	target := msModule.GetTargetUploadSpeed()
-	if target == nil {
-		return cfg.MaxUpload
-	}
-
+func parseSpeedTarget(target interface{}, maxUpload float64) float64 {
 	switch v := target.(type) {
 	case int:
 		return float64(v)
@@ -48,7 +40,7 @@ func calculateBaseUploadSpeed(msModule *module.MediaServerModule, cfg *config.Sp
 			pctStr := strings.TrimSuffix(s, "%")
 			pct, err := strconv.ParseFloat(pctStr, 64)
 			if err == nil {
-				return cfg.MaxUpload * (pct / 100.0)
+				return maxUpload * (pct / 100.0)
 			}
 		}
 		num, err := strconv.ParseFloat(s, 64)
@@ -56,6 +48,30 @@ func calculateBaseUploadSpeed(msModule *module.MediaServerModule, cfg *config.Sp
 			return num
 		}
 	}
+	return maxUpload
+}
+
+func calculateBaseUploadSpeed(msModule *module.MediaServerModule, webhookModule *module.WebhookModule, cfg *config.SpeedrrConfig) float64 {
+	totalStreams := 0
+	if msModule != nil {
+		totalStreams += msModule.GetStreamCount()
+	}
+	if webhookModule != nil {
+		totalStreams += webhookModule.GetStreamCount()
+	}
+
+	if msModule != nil {
+		if target := msModule.GetTargetUploadSpeedForCount(totalStreams); target != nil {
+			return parseSpeedTarget(target, cfg.MaxUpload)
+		}
+	}
+
+	if webhookModule != nil {
+		if target := webhookModule.GetTargetUploadSpeedForCount(totalStreams); target != nil {
+			return parseSpeedTarget(target, cfg.MaxUpload)
+		}
+	}
+
 	return cfg.MaxUpload
 }
 
@@ -94,9 +110,10 @@ func aggregateReductions(reductions []float64, minVal, maxVal float64) float64 {
 	return math.Max(minVal, maxVal-sum)
 }
 
-func calculateTargetSpeeds(msModule *module.MediaServerModule, schedModule *module.ScheduleModule, cfg *config.SpeedrrConfig) (float64, float64) {
+func calculateTargetSpeeds(msModule *module.MediaServerModule, schedModule *module.ScheduleModule, webhookModule *module.WebhookModule, cfg *config.SpeedrrConfig) (float64, float64) {
 	var msUp, msDown float64
 	var schedUp, schedDown float64
+	var webhookUp, webhookDown float64
 
 	if msModule != nil {
 		msUp, msDown = msModule.GetReductionValue()
@@ -104,20 +121,25 @@ func calculateTargetSpeeds(msModule *module.MediaServerModule, schedModule *modu
 	if schedModule != nil {
 		schedUp, schedDown = schedModule.GetReductionValue()
 	}
+	if webhookModule != nil {
+		webhookUp, webhookDown = webhookModule.GetReductionValue()
+	}
+
+	isStreamMode := math.IsInf(msUp, -1) || math.IsInf(webhookUp, -1)
 
 	var newUpload float64
-	if math.IsInf(msUp, -1) {
-		baseUpload := calculateBaseUploadSpeed(msModule, cfg)
+	if isStreamMode {
+		baseUpload := calculateBaseUploadSpeed(msModule, webhookModule, cfg)
 		var scheduleReductions []float64
 		if schedModule != nil && !math.IsInf(schedUp, -1) {
 			scheduleReductions = append(scheduleReductions, schedUp)
 		}
 		newUpload = calculateStreamModeUpload(baseUpload, scheduleReductions, cfg.MinUpload, cfg.MaxUpload)
 	} else {
-		newUpload = aggregateReductions([]float64{msUp, schedUp}, cfg.MinUpload, cfg.MaxUpload)
+		newUpload = aggregateReductions([]float64{msUp, schedUp, webhookUp}, cfg.MinUpload, cfg.MaxUpload)
 	}
 
-	newDownload := aggregateReductions([]float64{msDown, schedDown}, cfg.MinDownload, cfg.MaxDownload)
+	newDownload := aggregateReductions([]float64{msDown, schedDown, webhookDown}, cfg.MinDownload, cfg.MaxDownload)
 	return newUpload, newDownload
 }
 
@@ -305,6 +327,7 @@ func main() {
 	// Initialize Modules
 	var msModule *module.MediaServerModule
 	var schedModule *module.ScheduleModule
+	var webhookModule *module.WebhookModule
 
 	if len(cfg.Modules.MediaServers) > 0 {
 		var err error
@@ -323,7 +346,13 @@ func main() {
 		logger.Info("Started module: ScheduleModule")
 	}
 
-	if msModule == nil && schedModule == nil {
+	if cfg.Modules.Webhook != nil && cfg.Modules.Webhook.Enabled {
+		webhookModule = module.NewWebhookModule(cfg, cfg.Modules.Webhook, triggerUpdate)
+		webhookModule.Run(ctx)
+		logger.Info("Started module: WebhookModule (listening on port %d)", webhookModule.Port())
+	}
+
+	if msModule == nil && schedModule == nil && webhookModule == nil {
 		logger.Critical("No modules enabled in config, exiting")
 		os.Exit(1)
 	}
@@ -339,7 +368,7 @@ func main() {
 		case <-updateEventChan:
 			logger.Info("Update event triggered")
 
-			newUpload, newDownload := calculateTargetSpeeds(msModule, schedModule, cfg)
+			newUpload, newDownload := calculateTargetSpeeds(msModule, schedModule, webhookModule, cfg)
 			logCalculatedSpeeds(newUpload, newDownload, cfg.Units)
 			applySpeedsToClients(ctx, clients, cfg, newUpload, newDownload, sumUploadShares, sumDownloadShares)
 			logger.Info("Speeds updated")
