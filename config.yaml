@@ -194,5 +194,3 @@ modules:
         2: 25           # 2 active streams = 25 Mbit/s upload
         3: 10           # 3+ active streams = 10 Mbit/s upload
       default: 10
-
-

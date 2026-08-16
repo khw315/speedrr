@@ -339,12 +339,12 @@ func extractSourceIP(packet gopacket.Packet) string {
 // ============================================================================
 
 func initAppConfig() *Config {
-	configPath := "config.yaml"
+	var requestedPath string
 	if len(os.Args) > 1 {
-		configPath = os.Args[1]
+		requestedPath = os.Args[1]
 	}
 
-	cfg, err := LoadConfig(configPath)
+	cfg, err := LoadConfig(requestedPath)
 	if err != nil {
 		log.Fatalf("[FATAL] Failed to load configuration: %v", err)
 	}
@@ -355,6 +355,7 @@ func initAppConfig() *Config {
 	log.Printf("[CONFIG] Webhook URL    : %s", cfg.WebhookURL)
 	log.Printf("[CONFIG] Cooldown       : %v", cfg.CooldownTimeout)
 	log.Printf("[CONFIG] Promiscuous    : %v", cfg.Promiscuous)
+	log.Printf("[CONFIG] Debug          : %v", cfg.Debug)
 
 	return cfg
 }
@@ -362,7 +363,13 @@ func initAppConfig() *Config {
 func openPCAPHandle(cfg *Config) *pcap.Handle {
 	handle, err := pcap.OpenLive(cfg.Interface, cfg.SnapLen, cfg.Promiscuous, pcap.BlockForever)
 	if err != nil {
-		log.Fatalf("[FATAL] Failed to open PCAP interface '%s': %v\n(Requires root privileges or CAP_NET_RAW capability)", cfg.Interface, err)
+		var ifaceNames []string
+		if devs, devErr := pcap.FindAllDevs(); devErr == nil {
+			for _, d := range devs {
+				ifaceNames = append(ifaceNames, d.Name)
+			}
+		}
+		log.Fatalf("[FATAL] Failed to open PCAP interface '%s': %v\nAvailable network interfaces: %v\n(Verify that network_mode: host is set and CAP_NET_RAW / root privileges are enabled)", cfg.Interface, err, ifaceNames)
 	}
 	return handle
 }

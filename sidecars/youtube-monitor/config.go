@@ -12,7 +12,7 @@ import (
 
 // Config represents the runtime configuration for the YouTube Network Traffic Monitor.
 type Config struct {
-	Interface       string        `yaml:"interface"`        // Host physical network interface (e.g. "eth0", "en0", "br0")
+	Interface       string        `yaml:"interface"`        // Host physical network interface (e.g. "eth0", "en0", "br0", "enp3s0")
 	TargetIPs       []string      `yaml:"target_ips"`       // Specific target IP addresses (e.g. "192.168.1.50")
 	TargetSubnets   []string      `yaml:"target_subnets"`   // Subnet/CIDR ranges to monitor (e.g. "192.168.1.0/24", "10.0.0.0/16")
 	GatewayIP       string        `yaml:"gateway_ip"`       // Gateway / Router IP address (optional)
@@ -58,22 +58,54 @@ func (c *Config) GetAllTargets() []string {
 	return targets
 }
 
+// FindConfigFile attempts to find a valid configuration file from multiple paths.
+func FindConfigFile(requestedPath string) string {
+	if requestedPath != "" {
+		if _, err := os.Stat(requestedPath); err == nil {
+			return requestedPath
+		}
+	}
+
+	candidates := []string{
+		os.Getenv("CONFIG_PATH"),
+		os.Getenv("CONFIG_FILE"),
+		os.Getenv("YOUTUBE_MONITOR_CONFIG"),
+		os.Getenv("SPEEDRR_CONFIG"),
+		"/data/config.yaml",
+		"/data/config.yml",
+		"config.yaml",
+		"config.yml",
+	}
+
+	for _, path := range candidates {
+		if path != "" {
+			if _, err := os.Stat(path); err == nil {
+				return path
+			}
+		}
+	}
+
+	return ""
+}
+
 // LoadConfig loads configuration from a YAML file with environment variable overrides.
 func LoadConfig(filePath string) (*Config, error) {
 	cfg := DefaultConfig()
 
-	// 1. Read from YAML file if available
-	if filePath != "" {
-		if data, err := os.ReadFile(filePath); err == nil {
-			var raw yamlConfig
-			if err := yaml.Unmarshal(data, &raw); err != nil {
-				return nil, fmt.Errorf("failed to parse YAML configuration: %w", err)
-			}
-			applyYAMLValues(cfg, &raw)
+	resolvedPath := FindConfigFile(filePath)
+	if resolvedPath != "" {
+		data, err := os.ReadFile(resolvedPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read configuration file %s: %w", resolvedPath, err)
 		}
+		var raw yamlConfig
+		if err := yaml.Unmarshal(data, &raw); err != nil {
+			return nil, fmt.Errorf("failed to parse YAML configuration: %w", err)
+		}
+		applyYAMLValues(cfg, &raw)
 	}
 
-	// 2. Apply environment variable overrides
+	// Apply environment variable overrides
 	applyEnvOverrides(cfg)
 
 	return cfg, nil
@@ -110,11 +142,15 @@ func applyYAMLValues(cfg *Config, raw *yamlConfig) {
 // applyEnvOverrides maps environment variables to configuration fields.
 func applyEnvOverrides(cfg *Config) {
 	applyStringEnv("MONITOR_INTERFACE", &cfg.Interface)
+	applyStringEnv("INTERFACE", &cfg.Interface)
 	applyStringEnv("GATEWAY_IP", &cfg.GatewayIP)
 	applyStringEnv("WEBHOOK_URL", &cfg.WebhookURL)
+	applyStringEnv("SPEEDRR_WEBHOOK_URL", &cfg.WebhookURL)
 	applyStringSliceEnv("TARGET_IPS", &cfg.TargetIPs)
 	applyStringSliceEnv("TARGET_SUBNETS", &cfg.TargetSubnets)
+	applyStringSliceEnv("TARGETS", &cfg.TargetIPs)
 	applyDurationSecondsEnv("COOLDOWN_SECONDS", &cfg.CooldownTimeout)
+	applyDurationSecondsEnv("DEBOUNCE_SECONDS", &cfg.CooldownTimeout)
 	applyBoolEnv("PROMISCUOUS", &cfg.Promiscuous)
 	applyBoolEnv("DEBUG", &cfg.Debug)
 }
@@ -131,10 +167,14 @@ func applyStringSliceEnv(key string, target *[]string) {
 		return
 	}
 
+	// Trim surrounding brackets e.g. [192.168.0.10, 192.168.0.20]
+	val = strings.TrimPrefix(val, "[")
+	val = strings.TrimSuffix(val, "]")
+
 	var cleaned []string
 	for _, item := range strings.Split(val, ",") {
 		trimmed := strings.TrimSpace(item)
-		if trimmed != "" {
+		if trimmed != "" && !strings.Contains(trimmed, "IP_ADDRESS") {
 			cleaned = append(cleaned, trimmed)
 		}
 	}
